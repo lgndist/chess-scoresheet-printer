@@ -44,6 +44,12 @@ public partial class MainForm : Form
         InitToolButtons();
         InitListButtons();
         InitRegistrationView();
+        // Yerel DNS TSF sitesini çözemediğinde yedek çözümleme kullanılır; günlüğe bir kez yazılır.
+        FallbackDns.Default.FallbackUsed += host =>
+        {
+            try { if (IsHandleCreated && !IsDisposed) BeginInvoke(() => LogOnce($"ℹ Bilgisayarın DNS sunucusu {host} adını çözemedi; adres yedek yoldan (DNS-over-HTTPS) bulundu, TSF sitesi okunabiliyor.")); }
+            catch (InvalidOperationException) { }
+        };
         InitUx();
         LoadBranding();
         var baseDir = AppContext.BaseDirectory;
@@ -571,6 +577,13 @@ public partial class MainForm : Form
             var tr = new TournamentRef(tnr, name);
             existing = new Item<TournamentRef>(ComboLabel(tr), tr);
             cboTournament.Items.Insert(0, existing);
+        }
+        else if (tnr < 0 && existing.Value.Tnr == tnr && ComboLabel(existing.Value) is var label && label != existing.Text)
+        {
+            // Kayıt formu yeniden okundu: durum ve sporcu sayısı etikette güncellensin.
+            int at = cboTournament.Items.IndexOf(existing);
+            existing = new Item<TournamentRef>(label, existing.Value);
+            cboTournament.Items[at] = existing;
         }
         cboTournament.SelectedItem = existing;
         _loading = prev;

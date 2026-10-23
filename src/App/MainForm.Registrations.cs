@@ -146,7 +146,7 @@ public partial class MainForm
         }
 
         int boards = counts.Sum(c => c.Boards);
-        grpPairings.Text = $"3) Kayıtlı sporcular — TSF kayıt listesi{(TsfClosed.Contains(-tnr) ? " (kayıtlar bitti)" : "")} • eşleştirme henüz yok";
+        grpPairings.Text = $"3) Kayıtlı sporcular — TSF kayıt listesi{(IsTsfClosed(-tnr) ? " (kayıtlar bitti)" : "")} • eşleştirme henüz yok";
         lblSelection.Text = $"{reg.Entries.Count} sporcu · {counts.Count} kategori · {boards} masa";
     }
 }

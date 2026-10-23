@@ -24,8 +24,8 @@ public sealed class TsfSites : IDisposable
 
     public TsfSites(HttpClient? http = null)
     {
-        _http = http ?? new HttpClient(new HttpClientHandler { AutomaticDecompression = DecompressionMethods.All })
-        { Timeout = TimeSpan.FromSeconds(25) };
+        // Yerel DNS tsf.org.tr adlarını çözemezse yedek çözümleme (bkz. FallbackDns).
+        _http = http ?? new HttpClient(FallbackDns.Default.CreateHandler()) { Timeout = TimeSpan.FromSeconds(25) };
         if (http is null)
         {
             _http.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) ChessScoresheetPrinter");
