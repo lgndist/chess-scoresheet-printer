@@ -65,6 +65,20 @@ public static class RegistrationSync
                 if (known || RegistrationMatch.IsLikely(titleScore, matched, page.Entries.Count, roster.Count))
                     pages.Add(page);
             }
+
+            // Kayıt bitince form sitedeki listeden düşer ama sayfası bir süre okunur: bilinen en büyük form
+            // numarasının çevresindeki "kayıtlar sona ermiştir" sayfaları da sporcu örtüşmesiyle denenir.
+            if (pages.Count == 0)
+            {
+                var known = tids.Select(t => t.Tid).Concat(cfg.Registrations.Values.Where(r => r.Site == site).SelectMany(r => r.Tids)).ToList();
+                if (known.Count > 0)
+                    foreach (var page in await sites.ListRecentlyClosedAsync(site, known.Max(), tids.Select(t => t.Tid), ct: ct))
+                    {
+                        int matched = RegistrationMatch.Overlap(roster, page.Entries);
+                        if (RegistrationMatch.IsLikely(RegistrationMatch.TitleScore(page.Title, eventName), matched, page.Entries.Count, roster.Count))
+                            pages.Add(page);
+                    }
+            }
         }
         catch (Exception ex)
         {
@@ -74,7 +88,7 @@ public static class RegistrationSync
         if (pages.Count == 0)
             return new(false, existing is { Entries.Count: > 0 }
                 ? "Kayıt listesi yenilenemedi (form kapanmış olabilir); eldeki liste kullanılıyor."
-                : "TSF sitesinde bu turnuvaya ait kayıt formu bulunamadı (📋 Kayıt / İl ile elle seçilebilir).", existing);
+                : "TSF sitesinde bu turnuvaya ait kayıt formu bulunamadı (Ayarlar → Bölge → Kayıt listesi ile elle seçilebilir).", existing);
 
         var reg = new EventRegistration
         {
@@ -117,6 +131,7 @@ public static class RegistrationSync
     {
         for (var e = ex; e is not null; e = e.InnerException)
             if (e is System.Net.Sockets.SocketException) return "TSF sitesine ulaşılamıyor (site kapalı ya da internet yok).";
+        if (ex is HttpRequestException { StatusCode: { } code }) return $"TSF sitesi hata verdi (HTTP {(int)code}); site geçici olarak sorunlu olabilir.";
         return ex is TaskCanceledException ? "TSF sitesi yanıt vermedi." : ex.Message;
     }
 }

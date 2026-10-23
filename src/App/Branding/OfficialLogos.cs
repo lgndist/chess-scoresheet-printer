@@ -27,6 +27,75 @@ public static class OfficialLogos
         lock (Gate) return new Bitmap(_gsb ??= Load("gsb.png"));
     }
 
+    /// <summary>GSB amblemi tam <paramref name="px"/> pikselde, kademeli küçültülmüş (ekranda keskin dursun).</summary>
+    public static Bitmap Gsb(int px)
+    {
+        lock (Gate) return Downscale(_gsb ??= Load("gsb.png"), Math.Clamp(px, 16, 2400));
+    }
+
+    /// <summary>
+    /// Uygulama logosu: beyaz daire içinde yeşil at (♞) — yazı tipindeki glif vektör olarak tam
+    /// <paramref name="px"/> pikselde çizilir, hiçbir DPI'da bulanıklaşmaz.
+    /// </summary>
+    public static Bitmap AppLogo(int px)
+    {
+        px = Math.Clamp(px, 16, 1024);
+        var bmp = new Bitmap(px, px, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using var g = Graphics.FromImage(bmp);
+        g.Clear(Color.Transparent);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+        using (var white = new SolidBrush(Color.White)) g.FillEllipse(white, 0.5f, 0.5f, px - 1.5f, px - 1.5f);
+        using var family = FontFamily.Families.FirstOrDefault(f => f.Name == "Segoe UI Symbol") ?? new FontFamily("Segoe UI");
+        using var path = new GraphicsPath();
+        path.AddString("\u265E", family, (int)FontStyle.Regular, px, PointF.Empty, StringFormat.GenericTypographic);
+        var b = path.GetBounds();
+        float s = px * 0.66f / Math.Max(b.Width, b.Height);
+        using var m = new Matrix();
+        m.Translate(px / 2f, px / 2f);
+        m.Scale(s, s);
+        m.Translate(-(b.X + b.Width / 2), -(b.Y + b.Height / 2));
+        path.Transform(m);
+        using var green = new SolidBrush(Color.FromArgb(95, 122, 70));
+        g.FillPath(green, path);
+        return bmp;
+    }
+
+    /// <summary>
+    /// Büyük resmi yarıya yarıya küçültüp son adımı yüksek kaliteyle yapar: tek seferde 20–40 kat
+    /// küçültmede GDI+ ince çizgileri bulanıklaştırıp tırtıklı bırakıyordu.
+    /// </summary>
+    private static Bitmap Downscale(Image src, int px)
+    {
+        Image cur = src;
+        bool owned = false;
+        while (cur.Width / 2 >= px * 2)
+        {
+            var half = new Bitmap(cur.Width / 2, cur.Height / 2, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            using (var g = Graphics.FromImage(half))
+            {
+                g.InterpolationMode = InterpolationMode.HighQualityBilinear;
+                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                g.DrawImage(cur, 0, 0, half.Width, half.Height);
+            }
+            if (owned) cur.Dispose();
+            cur = half;
+            owned = true;
+        }
+        int h = (int)Math.Round(px * (double)cur.Height / cur.Width);
+        var outBmp = new Bitmap(px, Math.Max(1, h), System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(outBmp))
+        {
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            using var attrs = new System.Drawing.Imaging.ImageAttributes();
+            attrs.SetWrapMode(WrapMode.TileFlipXY); // kenarda yarı saydam hale olmasın
+            g.DrawImage(cur, new Rectangle(0, 0, outBmp.Width, outBmp.Height), 0, 0, cur.Width, cur.Height, GraphicsUnit.Pixel, attrs);
+        }
+        if (owned) cur.Dispose();
+        return outBmp;
+    }
+
     /// <summary>
     /// TSF il logosu (<paramref name="px"/>×<paramref name="px"/>, saydam zemin; kopyası, çağıran dispose eder).
     /// İl tanınmazsa ya da boşsa genel TSF logosu (alt yazısı "1991").
@@ -63,13 +132,11 @@ public static class OfficialLogos
 
     private static Bitmap Render(string text, int px)
     {
-        var bmp = new Bitmap(px, px, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        Bitmap bmp;
+        lock (Gate) bmp = Downscale(_tsfBase ??= Load("tsf_base.png"), px); // taban kademeli küçültülür
         using var g = Graphics.FromImage(bmp);
-        g.Clear(Color.Transparent);
-        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
         g.SmoothingMode = SmoothingMode.AntiAlias;
-        lock (Gate) g.DrawImage(_tsfBase ??= Load("tsf_base.png"), 0, 0, px, px);
+        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
         float k = px / 1000f;
         DrawArcText(g, text, new PointF(px / 2f, px / 2f), BaseRadius * k, CapHeight * k);
         return bmp;

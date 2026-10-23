@@ -13,20 +13,17 @@
     <Product>Chess Scoresheet Printer</Product>
     <Authors>Tunahan Dilercan</Authors>
     <Description>Satranç turnuvaları için hazır notasyon kâğıdı yazdırma aracı.</Description>
-    <Version>1.5.2</Version>
-    <FileVersion>1.5.2.0</FileVersion>
+    <Version>1.6.0</Version>
+    <FileVersion>1.6.0.0</FileVersion>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <ApplicationIcon>..\..\assets\app.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Pencere ikonu ve başlık logosu (tek dosya exe'de de çalışsın diye gömülü). -->
+    <!-- Pencere ikonu (tek dosya exe'de de çalışsın diye gömülü). Başlık logosu vektör olarak çizilir. -->
     <EmbeddedResource Include="..\..\assets\app.ico">
       <LogicalName>NotasyonOtomasyonu.App.app.ico</LogicalName>
-    </EmbeddedResource>
-    <EmbeddedResource Include="..\..\assets\logo.png">
-      <LogicalName>NotasyonOtomasyonu.App.logo.png</LogicalName>
     </EmbeddedResource>
     <!-- Varsayılan hazır kağıt şablonu (kullanıcının ana örneği). -->
     <EmbeddedResource Include="..\..\assets\AnaOrnek.png">

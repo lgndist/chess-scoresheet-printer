@@ -21,6 +21,8 @@ The application is used at tournaments run by two provincial organizations of th
 - Each player's province in the sheet's "İl / City" box: the tournament registration list on the province's TSF website is fetched once at the start and stored, then matched to Chess-Results players allowing for Turkish letters, name order, missing middle names and players with the same name
 - Quick-access buttons showing each category's latest round and printing it in one click (F5 refreshes them all)
 - A4 lists for the hall notice board: each category's latest pairings (boards, players, ratings, points before the round, round time) and the latest round with results together with the standings after it; small per-category buttons plus "All" (one page per category)
+- Arbiter pairing sheets (Ctrl+H): larger type than Swiss-Manager output, a bold result box on every board, a large bold category name and round above each category; categories go on separate pages, share an A4 when they fit, or follow page groups you choose (e.g. three categories on one page, two on the next); font size selectable, page-by-page preview
+- Before a tournament is on Chess-Results (no pairings yet, even after registration has closed) the players on the TSF registration form are listed in the "boards to print" area, grouped by category (with player and board counts) or in registration order, with name, FIDE and national rating, province and category
 - Bye boards are not printed by default, only when ticked manually in the list
 - Tournament regulations, report and technical-meeting minutes: built-in templates or your own .docx are filled with Chess-Results data and the regulations published on the province's TSF website; every field is edited in one table; output as PDF, to a printer or as Word
 - Official time-control suggestions by tempo (standard, rapid, blitz)
@@ -28,6 +30,7 @@ The application is used at tournaments run by two provincial organizations of th
 - Category table cards (A4 landscape): tournament poster at the top, large category name below; one theme colour per category with two styles (coloured text on white, or white text on a coloured band); poster cropping tool (card slot, 16:9, 4:3, 1:1 or free) and an edge-to-edge full-width option; embedded fonts (Montserrat, Oswald, Inter); the category name uses one common size on every card, the largest that fits all; copies default to the category's board count
 - Arbiter badges (85×54 or 90×60 mm landscape, 2×5 / 2×4 per A4, or large 95×135 mm portrait, 2×2 per A4, fits an A6 holder; with crop marks): logo, photo, name, role and a grade-coloured strip
 - Printer settings: target printer, tray, copy count, the printer's own preferences (quiet mode, quality) and "print directly" without preview
+- In-app update: checks GitHub for a new version on start (once a day); the "⬆ New version" button or Settings → Update downloads it in one click, verifies its SHA-256, installs it over the old exe and restarts; settings (config.json), templates and output are kept
 - Import JSON, CSV, TXT and XLSX files
 - Choose the boards to print by ticking them in a list (remembered separately for each category and round)
 - Batch-print by round or category

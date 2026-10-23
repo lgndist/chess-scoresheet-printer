@@ -9,6 +9,8 @@ namespace NotasyonOtomasyonu.App;
 public partial class MainForm
 {
     private LinkLabel? _lnkLog;
+    private LinkLabel? _lnkLogWindow;
+    private LogWindow? _logWindow;
     private int _logLines, _logErrors;
     private bool _busy;
     private static readonly Color Highlight = Color.FromArgb(232, 160, 32);
@@ -26,6 +28,15 @@ public partial class MainForm
         _lnkLog.LinkClicked += (_, _) => ToggleLog();
         Controls.Add(_lnkLog);
         new ToolTip().SetToolTip(_lnkLog, "İşlem kaydını aç/kapat (çekilen turlar, basılanlar, uyarılar).");
+        // Kaydı ayrı, boyutlandırılabilir pencerede aç (sol alt kutu küçük kaldığında)
+        _lnkLogWindow = new LinkLabel
+        {
+            AutoSize = true, Text = "⧉ ayrı pencerede", LinkBehavior = LinkBehavior.HoverUnderline,
+            LinkColor = ThGreenDark, ActiveLinkColor = ThGreenDark, Anchor = AnchorStyles.Top | AnchorStyles.Left
+        };
+        _lnkLogWindow.LinkClicked += (_, _) => ShowLogWindow();
+        Controls.Add(_lnkLogWindow);
+        new ToolTip().SetToolTip(_lnkLogWindow, "İşlem kaydını istediğiniz boyuta getirebileceğiniz ayrı bir pencerede açar.");
         Load += (_, _) => { ApplyLogState(); RelayoutLeft(); };
 
         // Yazdır düğmesinin altında ince yazıcı satırı: hangi yazıcıya basılacağı her an görünür, tıklayınca ayarlar.
@@ -46,8 +57,8 @@ public partial class MainForm
         grpPairings.Controls.Add(_btnPrinter);
         new ToolTip().SetToolTip(_btnPrinter, "Yazıcı ayarları: hedef yazıcı, kağıt kaynağı, kopya, yazıcı tercihleri (sessiz mod), doğrudan yazdır.");
 
-        foreach (ToolStripMenuItem item in _gridListMenu.Items)
-            item.ShortcutKeyDisplayString = item.Text!.Contains("eşleştirme") ? "Ctrl+E" : "Ctrl+R";
+        foreach (var item in _gridListMenu.Items.OfType<ToolStripMenuItem>())
+            item.ShortcutKeyDisplayString = item.Text!.Contains("Hakem") ? "Ctrl+H" : item.Text.Contains("eşleştirme") ? "Ctrl+E" : "Ctrl+R";
         _listTip.SetToolTip(_btnGridList!, "Listede görünen kategori ve turun eşleştirme (Ctrl+E) ya da sonuç (Ctrl+R) listesini A4 bas.");
     }
 
@@ -89,6 +100,7 @@ public partial class MainForm
 
     private void OnLogged(string line)
     {
+        if (_logWindow is { Visible: true }) _logWindow.RefreshText();
         _logLines++;
         if (line.StartsWith("✗") || line.StartsWith("Uyarı")) _logErrors++;
         UpdateLogLink();
@@ -100,7 +112,27 @@ public partial class MainForm
         var errors = _logErrors > 0 ? $", {_logErrors} uyarı" : "";
         _lnkLog.Text = (LogExpanded ? "▾ İşlem kaydını gizle" : "▸ İşlem kaydı") + $" ({_logLines} satır{errors})";
         _lnkLog.LinkColor = _logErrors > 0 && !LogExpanded ? Color.FromArgb(160, 60, 60) : ThGreenDark;
+        PlaceLogWindowLink();
     }
+
+    private void PlaceLogWindowLink()
+    {
+        if (_lnkLog is null || _lnkLogWindow is null) return;
+        _lnkLogWindow.Location = new Point(_lnkLog.Right + 14, _lnkLog.Top);
+    }
+
+    private void ShowLogWindow()
+    {
+        _logWindow ??= new LogWindow(() => txtLog.Text, () => { txtLog.Clear(); _logLines = _logErrors = 0; UpdateLogLink(); }) { Icon = Icon };
+        if (!_logWindow.Visible)
+        {
+            var wa = Screen.FromControl(this).WorkingArea;
+            _logWindow.Location = new Point(Math.Max(wa.Left, Math.Min(Left + 40, wa.Right - _logWindow.Width)),
+                                            Math.Max(wa.Top, Math.Min(Bottom - _logWindow.Height - 40, wa.Bottom - _logWindow.Height)));
+            _logWindow.Show(this);
+        }
+        _logWindow.RefreshText();
+        _logWindow.Activate();    }
 
     // ================= F5: yeni tur vurgusu =================
     /// <summary>Yenilemeden önce her kategorinin son eşlenen ve sonuçlanan turu.</summary>

@@ -18,6 +18,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Uygulama katmanı testleri ayrı projede (tests/AppTests). -->
+    <Compile Remove="AppTests\**" />
+    <None Remove="AppTests\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Offline parser testleri için kaydedilmiş chess-results HTML örnekleri -->
     <None Include="TestData\*.html" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\assets\turnuva_yonergesi_sablon.docx" Link="TestData\turnuva_yonergesi_sablon.docx" CopyToOutputDirectory="PreserveNewest" />

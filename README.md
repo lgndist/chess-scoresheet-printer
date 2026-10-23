@@ -21,6 +21,8 @@ Uygulama, iki TSF il temsilciliğinde yürütülen turnuvalarda kullanılmaktad�
 - Sporcuların ili kâğıttaki "İl / City" kutusuna: ilin TSF sitesindeki turnuva kayıt listesi turnuva başında bir kez alınır ve saklanır; chess-results sporcularıyla Türkçe harf, ad sırası, eksik ikinci ad ve aynı adlı sporcular gözetilerek eşlenir
 - Her kategorinin son turunu gösteren, tek tıkla o turu basan hızlı erişim düğmeleri (F5 hepsini yeniler)
 - Salon panosu için A4 listeler: her kategorinin son turunun eşleştirme listesi (masa, oyuncular, rating, tur başı puan, tur saati) ve sonucu girilmiş son turun sonuçları ile o turdan sonraki sıralama; kategori başına küçük düğmeler ve "Tümü" (her kategori ayrı sayfa)
+- Hakem eşleştirme kağıtları (Ctrl+H): Swiss-Manager çıktısından iri yazı, her masada sonucun yazılacağı kalın çerçeveli kutu, her kategorinin üstünde büyük ve kalın kategori adı ve tur; kategoriler ayrı sayfaya, sığdıkça aynı A4'e ya da seçilen sayfa gruplarına göre (ör. 3 kategori bir sayfaya, 2'si diğerine) dizilir; yazı boyutu seçilir, sayfa sayfa önizlenir
+- Turnuva henüz chess-results'ta yokken (eşleştirme yapılmadan, kayıtlar bitmiş olsa da) TSF kayıt formundaki sporcular "Basılacak masalar" alanında listelenir: kategoriye göre gruplu (grup başlığında sporcu ve masa sayısı) ya da kayıt sırasıyla; ad soyad, ELO, UKD, il ve kategori
 - BAY masası varsayılan olarak basılmaz; yalnızca listede elle işaretlenirse basılır
 - Turnuva yönergesi, raporu ve teknik toplantı tutanağı: gömülü şablonlar ya da kendi .docx şablonunuz chess-results verisi ve ilin TSF sitesindeki yönergeyle doldurulur; tüm alanlar tek tabloda düzenlenir; PDF, yazıcı veya Word çıktısı
 - Tempoya göre resmi düşünme süresi önerisi (klasik, hızlı, yıldırım)
@@ -28,6 +30,7 @@ Uygulama, iki TSF il temsilciliğinde yürütülen turnuvalarda kullanılmaktad�
 - Kategori masa kartları (A4 yatay): üstte turnuva afişi, altta büyük kategori adı; her kategorinin tema rengi ve iki stil (yazı renkli / beyaz zemin ya da zemin renkli / beyaz yazı); afiş kırpma aracı (kart yuvası, 16:9, 4:3, 1:1 ya da serbest) ve kenardan kenara tam genişlik seçeneği; gömülü yazı tipleri (Montserrat, Oswald, Inter); kategori adı tüm kartlarda aynı, hepsine sığan en büyük puntoda; adet kategorideki masa sayısı kadar önerilir
 - Hakem yaka kartları (85×54 veya 90×60 mm yatay, A4'e 2×5 / 2×4; ya da büyük dikey 95×135 mm, A4'e 2×2, A6 kılıfa uyar; kesim işaretli): logo, fotoğraf, ad soyad, görev ve unvana göre renkli şerit
 - Yazıcı ayarları: hedef yazıcı, tepsi, kopya sayısı, yazıcının kendi tercihleri (sessiz mod, kalite) ve önizlemesiz "doğrudan yazdır"
+- Uygulama içinden güncelleme: program açılınca (günde bir kez) GitHub'daki yeni sürümü denetler; "⬆ Yeni sürüm" düğmesi ya da Ayarlar → Güncelleme ile tek tıkla indirilir, SHA-256 özeti doğrulanır, eski exe'nin yerine kurulur ve program yeniden açılır; ayarlar (config.json), şablonlar ve çıktılar korunur
 - JSON, CSV, TXT ve XLSX dosyalarını içe aktarma
 - Basılacak masaları listeden işaretleyerek seçme (seçim her kategori ve tur için ayrı hatırlanır)
 - Tur ve kategoriye göre toplu yazdırma

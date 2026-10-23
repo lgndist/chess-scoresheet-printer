@@ -14,7 +14,8 @@ public partial class MainForm
 {
     private GroupBox? _grpLists;
     private FlowLayoutPanel? _flowPairLists, _flowResultLists;
-    private Label? _lblPairLists, _lblResultLists;
+    private Label? _lblPairLists, _lblResultLists, _lblArbiter;
+    private Button? _btnArbiter;
     private Button? _btnGridList;
     private readonly ContextMenuStrip _gridListMenu = new();
     private readonly ToolTip _listTip = new();
@@ -27,7 +28,7 @@ public partial class MainForm
     {
         _grpLists = new GroupBox
         {
-            Text = "📋 Pano listeleri — A4 (eşleştirme · sonuç ve sıralama)",
+            Text = "📋 Listeler — A4 (pano: eşleştirme · sonuç ve sıralama; hakem kağıtları)",
             Anchor = AnchorStyles.Top | AnchorStyles.Left,
             Location = new Point(grpQuick.Left, grpQuick.Bottom + 6),
             Size = new Size(grpQuick.Width, 76),
@@ -36,7 +37,13 @@ public partial class MainForm
         _lblResultLists = SmallLabel("Sonuç");
         _flowPairLists = new FlowLayoutPanel { WrapContents = true, Location = new Point(92, 20), Size = new Size(grpQuick.Width - 102, 28) };
         _flowResultLists = new FlowLayoutPanel { WrapContents = true, Location = new Point(92, 50), Size = new Size(grpQuick.Width - 102, 28) };
-        _grpLists.Controls.AddRange(new Control[] { _lblPairLists, _flowPairLists, _lblResultLists, _flowResultLists });
+        _lblArbiter = SmallLabel("Hakem");
+        _btnArbiter = new Button { Text = "🧑‍⚖️ Hakem eşleştirme kağıtları…", AutoSize = true, BackColor = Color.White, Font = new Font("Segoe UI", 8.5f) };
+        StyleButton(_btnArbiter);
+        _btnArbiter.Click += (_, _) => OpenArbiterSheets();
+        _listTip.SetToolTip(_btnArbiter, "Tur başında hakemlere verilen eşleştirme kağıtları (Ctrl+H): iri yazı, her masada sonuç kutusu; " +
+                                         "kategoriler ayrı sayfaya, sığdıkça aynı sayfaya ya da seçtiğiniz gruplara göre.");
+        _grpLists.Controls.AddRange(new Control[] { _lblPairLists, _flowPairLists, _lblResultLists, _flowResultLists, _lblArbiter, _btnArbiter });
         Controls.Add(_grpLists);
 
         // Sağdaki listenin altında: ekranda seçili kategori + tur için liste.
@@ -54,6 +61,8 @@ public partial class MainForm
         lblSelection.Width -= _btnGridList.Width + 4;
         _gridListMenu.Items.Add("📋 Bu turun eşleştirme listesi", null, async (_, _) => await PrintGridListAsync(results: false));
         _gridListMenu.Items.Add("🏁 Bu turun sonuçları ve sıralama", null, async (_, _) => await PrintGridListAsync(results: true));
+        _gridListMenu.Items.Add(new ToolStripSeparator());
+        _gridListMenu.Items.Add("🧑‍⚖️ Hakem eşleştirme kağıtları…", null, (_, _) => OpenArbiterSheets());
         _btnGridList.Click += (_, _) => _gridListMenu.Show(_btnGridList, new Point(0, _btnGridList.Height));
         _listTip.SetToolTip(_btnGridList, "Listede görünen kategori ve turun eşleştirme ya da sonuç listesini A4 olarak bas (salon panosu için).");
 
@@ -162,7 +171,14 @@ public partial class MainForm
             _btnAllPairLists!.SetBounds(x, _flowPairLists.Top + 2, allW, _btnAllPairLists.PreferredSize.Height);
             _btnAllResultLists!.SetBounds(x, _flowResultLists.Top + 2, allW, _btnAllResultLists.PreferredSize.Height);
         }
-        _grpLists.Height = _flowResultLists.Bottom + _quickPadBottom;
+        int bottom = _flowResultLists.Bottom;
+        if (_lblArbiter is not null && _btnArbiter is not null)
+        {
+            _btnArbiter.Location = new Point(flowLeft + 2, _flowResultLists.Bottom + 4);
+            _lblArbiter.SetBounds(pad, _btnArbiter.Top + (_btnArbiter.Height - _lblArbiter.Height) / 2, labelW, _lblArbiter.Height);
+            bottom = _btnArbiter.Bottom + 2;
+        }
+        _grpLists.Height = bottom + _quickPadBottom;
     }
 
     // ================= Liste baskısı =================
@@ -251,6 +267,33 @@ public partial class MainForm
         }
         else SetStatus("Önizleme kapatıldı; liste basılmadı.", ok: true);
         return Task.CompletedTask;
+    }
+
+    // ================= Hakem eşleştirme kağıtları =================
+    private void OpenArbiterSheets()
+    {
+        if (BlockedForTsfEvent("Hakem eşleştirme kağıtları")) return;
+        var cats = ToolCategories();
+        if (cats is null) return;
+        UpdateConfigFromUi();
+        var eventName = EventGrouping.BaseName(string.IsNullOrWhiteSpace(_config.Tournament.Name) ? CurrentEventName() : _config.Tournament.Name);
+        var ctx = new ArbiterSheetsContext(eventName, cats.Where(c => c.Tnr > 0).ToList(), LoadArbiterSheetAsync,
+                                           _config.ArbiterSheets, () => _config.Save(_configPath), _outputDir);
+        using var f = new ArbiterSheetsForm(ctx) { Icon = Icon };
+        f.ShowDialog(this);
+    }
+
+    /// <summary>Kategorinin hakem kağıdı: verilen tur (yoksa son eşlenen tur); eşleştirme yoksa null.</summary>
+    private async Task<ArbiterSheet?> LoadArbiterSheetAsync(CategoryRef cat, int? round)
+    {
+        var r = await RoundsOfAsync(cat.Tnr);
+        UpdateListButtons(cat);
+        int rd = round ?? r.Current;
+        if (rd <= 0) return null;
+        Tournament t;
+        try { t = await _online.GetPairingsAsync(cat.Tnr, rd, r.System); }
+        catch (InvalidOperationException) { return null; }
+        return t.Pairings.Count == 0 ? null : new ArbiterSheet(cat.Name, rd, await RoundWhenAsync(cat.Tnr, rd), t);
     }
 
     /// <summary>Turun tarihi ve saati ("11.10.2026 • 10.00"); program yoksa null.</summary>

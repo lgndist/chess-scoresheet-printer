@@ -12,14 +12,21 @@ public sealed record RegistrationOption(int Tid, string Title)
 }
 
 /// <summary>Bir kayıt formunun herkese açık sporcu listesi.</summary>
-public sealed record RegistrationPage(int Tid, string Title, int? Total, List<PlayerRegistration> Entries);
+/// <summary>
+/// Bir kayıt formunun sayfası. <paramref name="Closed"/>: kayıtlar sona ermiş (site "Turnuva Kayıtları Sona
+/// Ermiştir" yazar, liste yine de gösterilir); <paramref name="ClosesAt"/>: sitedeki kayıt bitiş tarihi.
+/// </summary>
+public sealed record RegistrationPage(int Tid, string Title, int? Total, List<PlayerRegistration> Entries,
+                                      bool Closed = false, DateTime? ClosesAt = null);
 
 /// <summary>
 /// TSF il sitelerindeki turnuva kayıt sayfaları ("/turnuva-kayit-form"). Liste sayfası
 /// (layout=tlist) kayda açık turnuvaları verir; tek turnuva varsa doğrudan onun formu gelir.
 /// Form sayfasında AD, SOYAD, İL, ELO, UKD, KATEGORİ sütunlu herkese açık kayıt listesi bulunur.
-/// Dikkat: kapanmış ya da olmayan bir numara istendiğinde site hata vermeden BAŞKA bir listeyi
-/// gösterir; bu yüzden yalnız başlığı "… KAYIT FORMU" olan ve numarası tutan sayfa kabul edilir.
+/// Kayıt süresi bitince form yerine turnuva başlığı, "Turnuva Kayıtları Sona Ermiştir" ve aynı liste
+/// gösterilir (bir süre sonra o da kalkar). Dikkat: olmayan ya da çok eski bir numara istendiğinde site
+/// hata vermeden başlıksız BAŞKA bir listeyi gösterir; bu yüzden yalnız başlığı "… KAYIT FORMU" olan ve
+/// numarası tutan sayfa ya da başlıklı "kayıtlar sona ermiştir" sayfası kabul edilir.
 /// </summary>
 public static class TsfRegistrations
 {
@@ -35,6 +42,27 @@ public static class TsfRegistrations
     /// <summary>Kayıt formunun listesi; sayfa bu numaraya ait değilse (kapanmış/yanlış) null.</summary>
     public static async Task<RegistrationPage?> GetPageAsync(this TsfSites sites, string site, int tid, CancellationToken ct = default)
         => ParsePage(Decode(await sites.DownloadAsync(FormUrl(site, tid), ct).ConfigureAwait(false)), tid);
+
+    /// <summary>
+    /// Kayıtları yeni kapanmış formlar: kapanan form sitedeki listeden düşer ama sayfası bir süre
+    /// okunur. Form numaraları sırayla verildiğinden bilinen en büyük numaranın çevresi yoklanır;
+    /// yalnız başlıklı "kayıtlar sona ermiştir" sayfaları döner (açık ya da yabancı sayfalar değil).
+    /// </summary>
+    public static async Task<List<RegistrationPage>> ListRecentlyClosedAsync(this TsfSites sites, string site, int aroundTid,
+        IEnumerable<int>? skip = null, int below = 10, int above = 3, CancellationToken ct = default)
+    {
+        var known = skip?.ToHashSet() ?? new HashSet<int>();
+        var list = new List<RegistrationPage>();
+        for (int tid = aroundTid + above; tid >= Math.Max(1, aroundTid - below); tid--)
+        {
+            if (known.Contains(tid)) continue;
+            RegistrationPage? page;
+            try { page = await sites.GetPageAsync(site, tid, ct).ConfigureAwait(false); }
+            catch (HttpRequestException) { continue; }
+            if (page is { Closed: true, Entries.Count: > 0 }) list.Add(page);
+        }
+        return list;
+    }
 
     /// <summary>"356", "tid=356" ya da tam kayıt linkinden form numarası.</summary>
     public static int? ParseTid(string? input)
@@ -72,7 +100,12 @@ public static class TsfRegistrations
     public static RegistrationPage? ParsePage(string html, int tid)
     {
         var title = FormTitle(html);
-        if (title is null || HiddenTid(html) != tid) return null;
+        bool closed = false;
+        if (title is null || HiddenTid(html) != tid)
+        {
+            if (ClosedTitle(html) is not { } ct) return null; // başlıksız yabancı liste
+            (title, closed) = (ct, true);
+        }
 
         var doc = Parser.ParseDocument(html);
         var entries = new List<PlayerRegistration>();
@@ -98,7 +131,18 @@ public static class TsfRegistrations
             break;
         }
         var total = Regex.Match(html, @"Toplam\s+Kay\S*\s*:\s*(\d+)");
-        return new RegistrationPage(tid, title, total.Success ? int.Parse(total.Groups[1].Value) : null, entries);
+        var end = Regex.Match(html, @"Biti\S*\s+Tarihi\s*:\s*(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?)");
+        DateTime? closesAt = end.Success && DateTime.TryParse(end.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture,
+                                                              System.Globalization.DateTimeStyles.None, out var d) ? d : null;
+        return new RegistrationPage(tid, title, total.Success ? int.Parse(total.Groups[1].Value) : null, entries, closed, closesAt);
+    }
+
+    /// <summary>Kayıtları sona ermiş formun başlığı (başlığın hemen ardından "Turnuva Kayıtları Sona Ermiştir" gelir).</summary>
+    private static string? ClosedTitle(string html)
+    {
+        var m = Regex.Match(html, @"<b>\s*([^<>]{3,250}?)\s*</b>\s*(?:</font>\s*)?(?:<br\s*/?>\s*)*<b>\s*Turnuva\s+Kay\S*\s+Sona\s+Er",
+                            RegexOptions.IgnoreCase);
+        return m.Success ? Clean(System.Net.WebUtility.HtmlDecode(m.Groups[1].Value)) : null;
     }
 
     private static string? FormTitle(string html)

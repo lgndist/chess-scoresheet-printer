@@ -83,7 +83,7 @@ public sealed class CardPrinter
             // Afiş bir kez hedef boyuta küçültülür (önizlemede ekran, baskıda 300 dpi): her sayfada büyük
             // görseli yeniden ölçeklemek önizlemeyi çok yavaşlatıyordu.
             _logo = ScaledLogo(_logoPath, preview ? 120 : 300);
-            (_gsb, _tsf) = _branding.Load(preview ? 300 : 800);
+            (_gsb, _tsf) = _branding.Load(preview ? 300 : 1200);
         };
         doc.EndPrint += (_, _) =>
         {
@@ -190,7 +190,7 @@ public sealed class CardPrinter
     public void SavePdf(string path)
     {
         using var logo = LoadLogo(_logoPath);
-        var (gsb, tsf) = _branding.Load(800);
+        var (gsb, tsf) = _branding.Load(1200);
         using (gsb) using (tsf)
             GdiPdf.Save(path, _pages, _layout.PageW, _layout.PageH,
                         (g, card) => Draw(g, _layout, card, logo, _eventName, _font, _filled, _fullWidth, _bandPt, _branding, gsb, tsf));

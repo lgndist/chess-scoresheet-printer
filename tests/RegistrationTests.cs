@@ -50,6 +50,25 @@ public class RegistrationTests
     }
 
     [Fact]
+    public void ParsePage_ReadsClosedForm()
+    {
+        // Kayıt süresi bitince: form ve gizli numara yok; başlık, "Turnuva Kayıtları Sona Ermiştir" ve aynı liste var.
+        var closed = "<div class=\"component-content\"><br><br><center><font color=maroon><b>Örnek İl Birinciliği Satranç Turnuvası 2026</b></font>" +
+                     "<br><br><b>Turnuva Kayıtları Sona Ermiştir. <br> Kayıt Bitiş Tarihi: 2026-10-23 18:00:00</b></center><br>" +
+                     "<font style=\"color:maroon\"> Toplam Kayıt: 2 </font><br><table width=650>" +
+                     "<tr><td>AD</td><td>SOYAD</td><td>İL</td><td>ELO</td><td>UKD</td><td>KATEGORİ</td></tr>" +
+                     "<tr><td>DENEME</td><td>BİR</td><td>ISPARTA</td><td>1500</td><td>1400</td><td>15 Yaş Genel</td></tr>" +
+                     "<tr><td>ÖRNEK</td><td>İKİ</td><td>BURDUR</td><td>0</td><td>0</td><td>13 Yaş Kız</td></tr></table></div>";
+        var page = TsfRegistrations.ParsePage(closed, 359)!;
+        Assert.True(page.Closed);
+        Assert.Equal("Örnek İl Birinciliği Satranç Turnuvası 2026", page.Title);
+        Assert.Equal(new DateTime(2026, 10, 23, 18, 0, 0), page.ClosesAt);
+        Assert.Equal(2, page.Entries.Count);
+        Assert.Equal("13 Yaş Kız", page.Entries[1].Category);
+        Assert.False(TsfRegistrations.ParsePage(FormPage(356, new[] { "A", "B", "ISPARTA", "0", "0", "Genel" }), 356)!.Closed);
+    }
+
+    [Fact]
     public void ParseOptions_ListAndSingleForm()
     {
         var list = "<div><a href=\"/turnuva-kayit-form?layout=girisform&amp;tid=1268\" target=\"_blank\">Ankara 29 Ekim - 8 Yaş</a>" +

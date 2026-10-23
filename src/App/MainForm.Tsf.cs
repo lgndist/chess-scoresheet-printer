@@ -13,17 +13,22 @@ namespace NotasyonOtomasyonu.App;
 public partial class MainForm
 {
     private const string TsfLabel = "📋 Kayıtta: ";
+    private const string TsfClosedLabel = "📋 Kayıt bitti: ";
     private readonly Dictionary<int, string> _tsfFormSites = new();   // form numarası → il sitesi
+    private static readonly HashSet<int> TsfClosed = new();           // kayıtları sona ermiş formlar
+    // İl sitesi → yeni kapanmış formlar (her liste yenilemede ~12 sayfa indirmemek için saatte bir yoklanır)
+    private readonly Dictionary<string, (DateTime At, List<RegistrationPage> Pages)> _tsfClosedCache = new();
 
     /// <summary>Açık turnuva kayıttaki (henüz chess-results'ta olmayan) turnuva mı.</summary>
     private bool IsTsfEvent => _eventTnr is < 0;
 
     private static string ComboLabel(TournamentRef t)
-        => t.Tnr < 0 ? $"{TsfLabel}{t.Name}  (TSF kayıt #{-t.Tnr})" : $"{t.Name}  (#{t.Tnr})";
+        => t.Tnr < 0 ? $"{(TsfClosed.Contains(-t.Tnr) ? TsfClosedLabel : TsfLabel)}{t.Name}  (TSF kayıt #{-t.Tnr})" : $"{t.Name}  (#{t.Tnr})";
 
     /// <summary>
-    /// İlin TSF sitesinde kayda açık turnuvalar (chess-results'ta adıyla zaten bulunanlar hariç).
-    /// Site erişilemezse boş döner (liste yine chess-results turnuvalarıyla dolar).
+    /// İlin TSF sitesinde kayda açık ve kayıtları yeni bitmiş turnuvalar (chess-results'ta adıyla zaten
+    /// bulunanlar hariç). Kayıt bitip turnuva henüz chess-results'a yüklenmemişken de liste ve sayılar
+    /// TSF'den gelir. Site erişilemezse daha önce alınmış kayıttaki turnuvalar (son 30 gün) yine listelenir.
     /// </summary>
     private async Task<List<TournamentRef>> TsfOpenFormsAsync(string? province, IReadOnlyList<TournamentRef> chessResults, string? text = null)
     {
@@ -33,16 +38,48 @@ public partial class MainForm
         try
         {
             using var sites = new TsfSites();
-            foreach (var o in await sites.ListOpenAsync(site))
+            var open = await sites.ListOpenAsync(site);
+            var forms = open.Select(o => (o.Tid, o.Title, Closed: false)).ToList();
+            foreach (var p in await RecentlyClosedAsync(sites, site, open.Select(o => o.Tid)))
+                if (forms.All(f => f.Tid != p.Tid)) forms.Add((p.Tid, p.Title, true));
+            foreach (var (tid, title, closed) in forms)
             {
-                if (chessResults.Any(t => RegistrationMatch.TitleScore(o.Title, t.Name) >= 0.6)) continue;
-                if (!string.IsNullOrWhiteSpace(text) && !EventGrouping.Fold(o.Title).Contains(EventGrouping.Fold(text))) continue;
-                _tsfFormSites[o.Tid] = site;
-                list.Add(new TournamentRef(-o.Tid, o.Title));
+                if (chessResults.Any(t => RegistrationMatch.TitleScore(title, t.Name) >= 0.6)) continue;
+                if (!string.IsNullOrWhiteSpace(text) && !EventGrouping.Fold(title).Contains(EventGrouping.Fold(text))) continue;
+                _tsfFormSites[tid] = site;
+                if (closed) TsfClosed.Add(tid); else TsfClosed.Remove(tid);
+                list.Add(new TournamentRef(-tid, title));
             }
         }
-        catch (Exception ex) { Log("Uyarı: TSF kayıt formları alınamadı — " + FriendlyNet(ex)); }
+        catch (Exception ex) { LogOnce("Uyarı: TSF kayıt formları alınamadı — " + TsfNet(ex)); }
+
+        // Daha önce alınmış kayıttaki turnuvalar (son 30 gün) site kapalıyken ya da form sitede artık
+        // görünmezken de listede kalır: saklı listeyle masa kartı basılabilsin.
+        foreach (var (key, reg) in _config.Registrations)
+        {
+            if (!int.TryParse(key, out var tnr) || tnr >= 0 || reg.Site != site || list.Any(t => t.Tnr == tnr)) continue;
+            if (DateTime.Now - reg.FetchedAt > TimeSpan.FromDays(30) || reg.Entries.Count == 0) continue;
+            var title = reg.EventName.Length > 0 ? reg.EventName : reg.Titles.FirstOrDefault() ?? $"Kayıt formu {-tnr}";
+            if (chessResults.Any(t => RegistrationMatch.TitleScore(title, t.Name) >= 0.6)) continue;
+            if (!string.IsNullOrWhiteSpace(text) && !EventGrouping.Fold(title).Contains(EventGrouping.Fold(text))) continue;
+            _tsfFormSites[-tnr] = site;
+            list.Add(new TournamentRef(tnr, title));
+        }
         return list;
+    }
+
+    /// <summary>
+    /// Yeni kapanmış formlar: bilinen en büyük form numarasının (açık formlar ve daha önce alınmış
+    /// listeler) çevresi yoklanır; sonuç bir saat saklanır.
+    /// </summary>
+    private async Task<List<RegistrationPage>> RecentlyClosedAsync(TsfSites sites, string site, IEnumerable<int> openTids)
+    {
+        if (_tsfClosedCache.TryGetValue(site, out var c) && DateTime.Now - c.At < TimeSpan.FromHours(1)) return c.Pages;
+        var known = openTids.Concat(_config.Registrations.Values.Where(r => r.Site == site).SelectMany(r => r.Tids)).ToList();
+        var pages = known.Count == 0 ? new List<RegistrationPage>()
+                  : await sites.ListRecentlyClosedAsync(site, known.Max(), openTids);
+        _tsfClosedCache[site] = (DateTime.Now, pages);
+        return pages;
     }
 
     /// <summary>Kayıttaki turnuvayı yükler: kategoriler ve sayılar TSF kayıt formundan (site kapalıysa eldeki listeden).</summary>
@@ -62,12 +99,13 @@ public partial class MainForm
             if (site is not null)
             {
                 try { using var sites = new TsfSites(); page = await sites.GetPageAsync(site, tid); }
-                catch (Exception ex) { problem = FriendlyNet(ex); }
+                catch (Exception ex) { problem = TsfNet(ex); }
                 if (page is null && problem is null) problem = "form kapanmış ya da bulunamadı";
             }
             else problem = "ilin TSF sitesi bilinmiyor";
 
             EventRegistration reg;
+            if (page is { Closed: true }) TsfClosed.Add(tid);
             if (page is { Entries.Count: > 0 })
             {
                 reg = new EventRegistration
@@ -80,9 +118,12 @@ public partial class MainForm
             else if (stored is { Entries.Count: > 0 }) reg = stored;   // site kapalı / form kapanmış: eldeki liste
             else
             {
-                var msg = $"Kayıt formu #{tid} okunamadı ({problem ?? "kayıt yok"}).";
-                if (silent) { SetStatus(msg, ok: false); Log("Uyarı: " + msg); }
-                else Fail("Kayıt formu okunamadı", msg);
+                // Pencere açmadan tek satır uyarı; aynı uyarı günlüğe üst üste yazılmaz.
+                var msg = page is { Entries.Count: 0 }
+                    ? $"TSF kayıt formu #{tid}: henüz kayıtlı sporcu yok."
+                    : $"TSF kayıt formu #{tid} okunamadı: {problem ?? "kayıt yok"}. Kayıt listesi sitede kalktıysa turnuva chess-results'a yüklenince oradan devam edilir.";
+                SetStatus(msg, ok: false);
+                LogOnce(msg);
                 return;
             }
 
@@ -111,12 +152,25 @@ public partial class MainForm
             _syncedTournament = null;
             ShowPairings(null);
             var summary = string.Join(" · ", counts.Select(c => $"{c.Name} {c.Count}"));
-            SetStatus($"Turnuva henüz chess-results'ta yok: kategoriler ve sayılar TSF kayıt formundan ({reg.Entries.Count} sporcu). Masa kartları bu sayılarla basılabilir.", ok: true);
-            Log($"📋 Kayıttaki turnuva: {name} (TSF #{tid}) — {reg.Entries.Count} sporcu: {summary}" +
-                (page is null ? $" • site okunamadı ({problem}), {reg.FetchedAt:dd.MM HH:mm} tarihli liste kullanılıyor" : ""));
+            var state = page is { Closed: true } ? $"kayıtlar bitti{(page.ClosesAt is { } end ? $" ({end:dd.MM HH:mm})" : "")}" : page is null ? "eldeki liste" : "kayıt sürüyor";
+            SetStatus($"Turnuva henüz chess-results'ta yok — TSF kayıt listesi ({state}): {reg.Entries.Count} sporcu. Masa kartları bu sayılarla basılabilir.", ok: true);
+            LogOnce($"📋 Kayıttaki turnuva: {name} (TSF #{tid}, {state}) — {reg.Entries.Count} sporcu: {summary}" +
+                    (page is null ? $" • site okunamadı ({problem}), {reg.FetchedAt:dd.MM HH:mm} tarihli liste kullanılıyor" : ""));
         }
         finally { SetBusy(false); }
     }
+
+    /// <summary>
+    /// TSF sitesi hatası: chess-results aynı anda çalışırken "internet yok" demek yanıltıcı olduğundan
+    /// sorunun TSF il sitesinde olduğu söylenir (ad çözülemedi, bağlantı reddedildi, HTTP hatası).
+    /// </summary>
+    private static string TsfNet(Exception ex) => ex switch
+    {
+        HttpRequestException { StatusCode: { } code } => $"TSF il sitesi hata verdi (HTTP {(int)code}); site geçici olarak sorunlu olabilir.",
+        HttpRequestException => "TSF il sitesine ulaşılamıyor (site geçici olarak kapalı olabilir; chess-results turnuvaları yine listelenir).",
+        TaskCanceledException => "TSF il sitesi yanıt vermedi.",
+        _ => ex.Message
+    };
 
     /// <summary>Kayıttaki turnuvada eşleştirme isteyen işlem: kullanıcıya neden yapılamadığını söyler.</summary>
     private bool BlockedForTsfEvent(string what)

@@ -60,7 +60,7 @@ public partial class MainForm
             if (grpQuick.Visible)
             {
                 grpQuick.Top = lblInfo.Bottom + _gapInfoToQuick;
-                FitFlow(flowQuick);
+                FitFlow(flowQuick, maxRows: int.MaxValue); // hızlı erişim kaydırmasız: düğmeler alt satırlara akar
                 grpQuick.Height = Math.Max(flowQuick.Bottom, btnPrintAll.Bottom) + _quickPadBottom;
                 above = grpQuick;
             }
@@ -80,6 +80,7 @@ public partial class MainForm
             if (_lnkLog is not null)
             {
                 _lnkLog.Top = logTop;
+                PlaceLogWindowLink();
                 logTop = _lnkLog.Bottom + 2;
             }
             txtLog.Top = logTop;
@@ -101,7 +102,7 @@ public partial class MainForm
     /// Akış panelini içeriğinin gerçek yüksekliğine getirir; <see cref="MaxRowsWithoutScroll"/>
     /// satırı aşarsa o yükseklikte sabitler ve yalnız o zaman kaydırma açar.
     /// </summary>
-    private static void FitFlow(FlowLayoutPanel panel)
+    private static void FitFlow(FlowLayoutPanel panel, int maxRows = MaxRowsWithoutScroll)
     {
         var items = panel.Controls.Cast<Control>().ToList();
         int rowH = items.Count > 0
@@ -116,7 +117,7 @@ public partial class MainForm
         // Kaydırma çubuğu olmadan gereken yükseklik (panel genişliğine göre satırlara bölünmüş).
         panel.AutoScroll = false;
         int needed = panel.GetPreferredSize(new Size(panel.ClientSize.Width, 0)).Height;
-        int maxH = rowH * MaxRowsWithoutScroll + panel.Padding.Vertical;
+        int maxH = maxRows == int.MaxValue ? int.MaxValue : rowH * maxRows + panel.Padding.Vertical;
         if (needed <= maxH)
         {
             panel.Height = Math.Max(rowH + panel.Padding.Vertical, needed);

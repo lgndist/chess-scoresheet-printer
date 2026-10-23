@@ -67,6 +67,12 @@ public sealed class AppConfig
     /// <summary>Hakem yaka kartları.</summary>
     public BadgeConfig Badges { get; set; } = new();
 
+    /// <summary>Uygulama güncellemeleri (GitHub sürümleri).</summary>
+    public UpdateConfig Updates { get; set; } = new();
+
+    /// <summary>Hakem eşleştirme kağıtları: sayfa düzeni ("Separate", "Fit", "Groups") ve ad puntosu.</summary>
+    public ArbiterSheetConfig ArbiterSheets { get; set; } = new();
+
     /// <summary>Yazıcı: hedef yazıcı, tepsi, kopya, yazıcı tercihleri ve doğrudan yazdırma.</summary>
     public PrintConfig Printing { get; set; } = new();
 
@@ -224,6 +230,32 @@ public sealed class CardConfig
         CategoryColors[key] = pick;
         return pick;
     }
+}
+
+/// <summary>Hakem eşleştirme kağıdı ayarları (kalıcı).</summary>
+public sealed class ArbiterSheetConfig
+{
+    /// <summary>"Separate" (her kategori ayrı sayfa), "Fit" (sığdıkça aynı sayfa) ya da "Groups" (elle gruplar).</summary>
+    public string Layout { get; set; } = "Fit";
+
+    /// <summary>Oyuncu adı puntosu (11 normal, 12,5 büyük, 14 çok büyük).</summary>
+    public double FontPt { get; set; } = 12.5;
+
+    /// <summary>Elle sayfa grupları: kategori adı → sayfa grubu numarası.</summary>
+    public Dictionary<string, int> Groups { get; set; } = new();
+}
+
+/// <summary>Güncelleme denetimi ayarları.</summary>
+public sealed class UpdateConfig
+{
+    /// <summary>Program açılınca (günde en çok bir kez) yeni sürüm denetlensin.</summary>
+    public bool AutoCheck { get; set; } = true;
+
+    /// <summary>Son denetim zamanı.</summary>
+    public DateTime? LastCheck { get; set; }
+
+    /// <summary>Kullanıcının "bu sürümü atla" dediği sürüm (ör. "1.6.0"); bildirimi gösterilmez.</summary>
+    public string? SkippedVersion { get; set; }
 }
 
 /// <summary>Elle yerleştirilmiş bir logonun yeri: merkez (X: sayfa genişliğine, Y: yüksekliğine oran) ve yükseklik (sayfa yüksekliğine oran).</summary>

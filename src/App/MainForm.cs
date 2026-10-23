@@ -43,6 +43,7 @@ public partial class MainForm : Form
         InitializeComponent();
         InitToolButtons();
         InitListButtons();
+        InitRegistrationView();
         InitUx();
         LoadBranding();
         var baseDir = AppContext.BaseDirectory;
@@ -173,17 +174,13 @@ public partial class MainForm : Form
             if (ico is not null) Icon = new System.Drawing.Icon(ico);
         }
         catch { /* ikon yoksa varsayılan */ }
-        try
-        {
-            using var png = asm.GetManifestResourceStream("NotasyonOtomasyonu.App.logo.png");
-            if (png is not null) pbLogo.Image = _appLogo = System.Drawing.Image.FromStream(png);
-        }
-        catch { /* logo yoksa boş */ }
         pbLogo.SetBounds(8, 5, 46, 46);
+        // Logo kutunun gerçek piksel boyutunda çizilir (yüksek DPI'da da keskin; ölçekleme yok).
+        pbLogo.SizeMode = PictureBoxSizeMode.CenterImage;
+        pbLogo.SizeChanged += (_, _) => { _logoProvince = null; if (_config is not null) UpdateProvinceLogo(); };
         _logoTip.SetToolTip(pbLogo, "Notasyon Kâğıdı Yazdırıcı");
     }
 
-    private System.Drawing.Image? _appLogo;
     private readonly ToolTip _logoTip = new();
     private string? _logoProvince;
 
@@ -195,23 +192,26 @@ public partial class MainForm : Form
     {
         var prov = _config.LogoProvince();
         bool general = prov is null && _config.GeneralTsfLogo;
-        string key = prov ?? (general ? "(genel)" : "");
+        int px = Math.Min(pbLogo.ClientSize.Width, pbLogo.ClientSize.Height);
+        string key = (prov ?? (general ? "(genel)" : "")) + "@" + px;
         if (key == _logoProvince && pbLogo.Image is not null) return;
         _logoProvince = key;
         var old = pbLogo.Image;
         try
         {
-            pbLogo.Image = prov is null && !general ? _appLogo : Branding.OfficialLogos.Tsf(prov, 138); // 46 px × 3 (yüksek DPI)
+            pbLogo.Image = prov is null && !general ? Branding.OfficialLogos.AppLogo(px) : Branding.OfficialLogos.Tsf(prov, px);
             _logoTip.SetToolTip(pbLogo, prov is null && !general ? "Notasyon Kâğıdı Yazdırıcı" : Branding.OfficialLogos.Caption(prov));
         }
-        catch { pbLogo.Image = _appLogo; }
-        if (old is not null && old != _appLogo && old != pbLogo.Image) old.Dispose();
+        catch { pbLogo.Image = null; }
+        if (old is not null && old != pbLogo.Image) old.Dispose();
     }
 
     private async void MainForm_Shown(object? sender, EventArgs e)
     {
         Shown -= MainForm_Shown; // yalnızca ilk açılışta
-        if (rbOnline.Checked) await AutoSelectLatestAsync();
+        _ = CheckForUpdateOnStartAsync(); // arka planda; turnuva yüklemesini bekletmez
+        try { if (rbOnline.Checked) await AutoSelectLatestAsync(); }
+        finally { AnnounceUpdate(); }
     }
 
     /// <summary>
@@ -667,6 +667,7 @@ public partial class MainForm : Form
         if (sender is not RadioButton { Checked: true, Tag: CategoryRef c }) return;
         _syncedTournament = null; // kategori değişti → yeniden çekilmeli
         ShowPairings(null);
+        if (IsTsfEvent) return; // kayıt önizlemesi kategorinin grubuna gitti; eşleştirme henüz yok
         int current = await UpdateRoundsForCategoryAsync(c.Tnr);
         if (current == 0)
         {
@@ -1076,6 +1077,10 @@ public partial class MainForm : Form
     /// </summary>
     private void ShowPairings(Tournament? t)
     {
+        // Kayıttaki turnuva (eşleştirme yok): alan TSF kayıt listesini gösterir.
+        bool regView = t is null && rbOnline.Checked && IsTsfEvent;
+        SetRegistrationView(regView);
+        if (regView) { ShowRegistrations(); return; }
         _gridTournament = t is null ? null : Validation.Normalize(t, keepByeSheets: true);
         var catTnr = rbOnline.Checked ? SelectedCategory()?.Tnr ?? _eventTnr : null;
         _gridKey = _gridTournament is not null && catTnr is int ct ? (ct, _gridTournament.RoundNo) : null;
@@ -1208,6 +1213,11 @@ public partial class MainForm : Form
             e.SuppressKeyPress = true;
             _ = PrintGridListAsync(results: e.KeyCode == Keys.R); // Ctrl+E eşleştirme, Ctrl+R sonuç listesi
         }
+        else if (e.Control && e.KeyCode == Keys.H && !_busy && rbOnline.Checked && _eventTnr is not null)
+        {
+            e.SuppressKeyPress = true;
+            OpenArbiterSheets(); // Ctrl+H hakem eşleştirme kağıtları
+        }
     }
 
     /// <summary>Önizleme açar; true = kullanıcı yazıcıya gönderdi.</summary>
@@ -1292,7 +1302,7 @@ public partial class MainForm : Form
     private void btnSettings_Click(object? sender, EventArgs e)
     {
         UpdateConfigFromUi();
-        using var dlg = new SettingsForm(_config, owner => OpenRegistration(owner));
+        using var dlg = new SettingsForm(_config, owner => OpenRegistration(owner), owner => OpenUpdates(null, owner));
         if (dlg.ShowDialog(this) == DialogResult.OK)
         {
             UpdateProvinceLogo();
@@ -1347,7 +1357,9 @@ public partial class MainForm : Form
 
     private static string FriendlyNet(Exception ex) => ex switch
     {
-        HttpRequestException => "İnternet bağlantısı kurulamadı. Bağlantınızı kontrol edin.",
+        // Sunucu yanıt verdi ama hata döndü: bağlantı değil sitenin sorunu
+        HttpRequestException { StatusCode: { } code } => $"Site hata verdi (HTTP {(int)code}); site geçici olarak sorunlu olabilir, biraz sonra tekrar deneyin.",
+        HttpRequestException => "İnternet bağlantısı kurulamadı ya da siteye ulaşılamıyor. Bağlantınızı kontrol edin.",
         TaskCanceledException => "İstek zaman aşımına uğradı. Tekrar deneyin.",
         _ => ex.Message
     };
@@ -1375,6 +1387,16 @@ public partial class MainForm : Form
     {
         txtLog.AppendText(line + Environment.NewLine);
         OnLogged(line);
+    }
+
+    private readonly Dictionary<string, DateTime> _logOnce = new();
+
+    /// <summary>Aynı satır son 15 dakikada yazıldıysa tekrar yazmaz (her yenilemede yığılan uyarılar için).</summary>
+    private void LogOnce(string line)
+    {
+        if (_logOnce.TryGetValue(line, out var at) && DateTime.Now - at < TimeSpan.FromMinutes(15)) return;
+        _logOnce[line] = DateTime.Now;
+        Log(line);
     }
 
     private void Fail(string title, string message)

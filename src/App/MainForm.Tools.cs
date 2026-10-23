@@ -49,7 +49,7 @@ public partial class MainForm
     /// <summary>Ayarlar'ın soluna araç butonlarını dizer (PositionHeader'dan çağrılır).</summary>
     private int PositionToolButtons(int right)
     {
-        foreach (var b in new[] { _btnBadges, _btnCards, _btnReport })
+        foreach (var b in new[] { _btnBadges, _btnCards, _btnReport, _btnUpdate })
         {
             if (b is null) continue;
             b.Top = (pnlHeader.Height - b.Height) / 2;
@@ -160,11 +160,11 @@ public partial class MainForm
             var r = await RegistrationSync.EnsureAsync(_config, _online, tnr, CurrentEventName(), CurrentProvince(), cats, force);
             if (_eventTnr != tnr) return; // bu arada başka turnuva açıldı
             if (r.Changed || !ReferenceEquals(before, r.Registration)) _config.Save(_configPath);
-            if (r.Message.Length > 0) Log(r.Message);
+            if (r.Message.Length > 0) LogOnce(r.Message);
             if (r.Registration is null) _regSyncMiss[tnr] = DateTime.Now; else _regSyncMiss.Remove(tnr);
             if (r.Changed) ShowPairings(rbOnline.Checked ? _syncedTournament : _fileTournament); // İl sütunu
         }
-        catch (Exception ex) { Log("Uyarı: kayıt listesi eşitlenemedi — " + ex.Message); }
+        catch (Exception ex) { LogOnce("Uyarı: kayıt listesi eşitlenemedi — " + ex.Message); }
         finally { if (_regSyncTnr == tnr) _regSyncTnr = 0; }
     }
 

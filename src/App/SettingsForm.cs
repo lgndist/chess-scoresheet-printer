@@ -5,8 +5,9 @@ using NotasyonOtomasyonu.Core;
 namespace NotasyonOtomasyonu.App;
 
 /// <summary>
-/// Sık değişmeyen ama kalıcı olması gereken ayarlar: varsayılan turnuva adı, sayfa boyutu,
-/// yazıcı hizalaması ve şablonlar. OK'e basınca verilen <see cref="AppConfig"/> nesnesine yazar (çağıran kaydeder).
+/// Sık değişmeyen ama kalıcı olması gereken ayarlar, üstte sekmelerle: Notasyon (turnuva adı, sayfa
+/// boyutu, yazıcı hizalaması), Şablonlar, Bölge (il, TSF sitesi, logo, kayıt listesi), Yazıcı ve
+/// Güncelleme. Kaydet'e basınca verilen <see cref="AppConfig"/> nesnesine yazar (çağıran kaydeder).
 /// </summary>
 public sealed class SettingsForm : Form
 {
@@ -22,9 +23,14 @@ public sealed class SettingsForm : Form
     private readonly ComboBox _province = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly TextBox _tsfSite = new();
     private readonly PrinterSettingsPanel _printerPanel = new(RW);
-    private readonly PictureBox _provinceLogo = new() { SizeMode = PictureBoxSizeMode.Zoom, Size = new System.Drawing.Size(58, 58) };
+    private readonly PictureBox _provinceLogo = new() { SizeMode = PictureBoxSizeMode.CenterImage, Size = new System.Drawing.Size(58, 58) };
     private readonly ComboBox _logoKind = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly Action<IWin32Window>? _openRegistration;
+    private readonly Action<IWin32Window>? _openUpdates;
+    private readonly CheckBox _autoUpdate = new() { Text = "Program açılınca yeni sürümü denetle (günde bir kez)", AutoSize = true };
+    private readonly TabControl _tabs = new() { Location = new System.Drawing.Point(12, 12) };
+    private Control _host = null!;                             // kurulurken denetimlerin eklendiği sekme
+    private const int TabW = 456;                              // sekme genişliği (içerik 16 + 408 + pay)
     private const string NoProvinceItem = "(seçilmedi)";
 
     private const string ActiveTemplateItem = "(etkin şablon)";
@@ -35,10 +41,11 @@ public sealed class SettingsForm : Form
         ("Team", "Takım turnuvası:"),
     };
 
-    public SettingsForm(AppConfig cfg, Action<IWin32Window>? openRegistration = null)
+    public SettingsForm(AppConfig cfg, Action<IWin32Window>? openRegistration = null, Action<IWin32Window>? openUpdates = null)
     {
         _cfg = cfg;
         _openRegistration = openRegistration;
+        _openUpdates = openUpdates;
 
         Text = "⚙ Ayarlar";
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -46,6 +53,22 @@ public sealed class SettingsForm : Form
         MaximizeBox = MinimizeBox = false;
         Font = new System.Drawing.Font("Segoe UI", 9.75F);
         BackColor = System.Drawing.Color.FromArgb(245, 245, 240);
+
+        _tabs.Font = Font;
+        _tabs.Padding = new System.Drawing.Point(14, 5);
+        TabPage Page(string text)
+        {
+            var page = new TabPage(text) { BackColor = System.Drawing.Color.FromArgb(250, 250, 247), UseVisualStyleBackColor = false };
+            _tabs.TabPages.Add(page);
+            return page;
+        }
+        var pNotation = Page("Notasyon");
+        var pTemplates = Page("Şablonlar");
+        var pRegion = Page("Bölge");
+        var pPrinter = Page("Yazıcı");
+        var pUpdate = Page("Güncelleme");
+        Controls.Add(_tabs);
+        _host = pNotation;
 
         int y = 16;
         AddRow("Varsayılan turnuva adı:", _name, ref y);
@@ -55,19 +78,19 @@ public sealed class SettingsForm : Form
 
         // ---- Yazıcı hizalama ----
         y += 4;
-        Controls.Add(new Label
+        _host.Controls.Add(new Label
         {
             Text = "Yazıcı hizalama (mm)", AutoSize = true, Location = new System.Drawing.Point(16, y),
             Font = new System.Drawing.Font("Segoe UI", 9.75F, System.Drawing.FontStyle.Bold),
             ForeColor = System.Drawing.Color.FromArgb(95, 122, 70)
         });
         y += 24;
-        Controls.Add(new Label { Text = "Sağa (+) / sola (−):", AutoSize = true, Location = new System.Drawing.Point(16, y + 4) });
-        _offX.SetBounds(150, y, 70, 25); Controls.Add(_offX);
-        Controls.Add(new Label { Text = "Aşağı (+) / yukarı (−):", AutoSize = true, Location = new System.Drawing.Point(230, y + 4) });
-        _offY.SetBounds(374, y, 50, 25); Controls.Add(_offY);
+        _host.Controls.Add(new Label { Text = "Sağa (+) / sola (−):", AutoSize = true, Location = new System.Drawing.Point(16, y + 4) });
+        _offX.SetBounds(150, y, 70, 25); _host.Controls.Add(_offX);
+        _host.Controls.Add(new Label { Text = "Aşağı (+) / yukarı (−):", AutoSize = true, Location = new System.Drawing.Point(230, y + 4) });
+        _offY.SetBounds(374, y, 50, 25); _host.Controls.Add(_offY);
         y += 32;
-        Controls.Add(new Label
+        _host.Controls.Add(new Label
         {
             Text = "Yazılar hazır kağıttaki kutulara göre kayıksa buradan düzeltin; şablonu değiştirmeniz gerekmez. " +
                    "Önce hizalama testini boş bir hazır kağıda basıp ölçün.",
@@ -81,10 +104,13 @@ public sealed class SettingsForm : Form
             Size = new System.Drawing.Size(408, 32), Location = new System.Drawing.Point(16, y)
         };
         btnTest.Click += PrintAlignmentTest;
-        Controls.Add(btnTest);
+        _host.Controls.Add(btnTest);
         y += 44;
+        int yNotation = y;
 
-        // Hazır kağıt (overlay) şablonu tasarımcısı
+        // ---- Şablonlar sekmesi: hazır kağıt (overlay) şablonu tasarımcısı ----
+        _host = pTemplates;
+        y = 16;
         var btnTemplate = new Button
         {
             Text = "🎨 Hazır kağıt şablonları (ekle / düzenle)…",
@@ -92,11 +118,11 @@ public sealed class SettingsForm : Form
             Location = new System.Drawing.Point(16, y)
         };
         btnTemplate.Click += OpenTemplates;
-        Controls.Add(btnTemplate);
+        _host.Controls.Add(btnTemplate);
         y += 42;
 
         // ---- Sisteme göre şablon ----
-        Controls.Add(new Label
+        _host.Controls.Add(new Label
         {
             Text = "Sisteme göre şablon", AutoSize = true, Location = new System.Drawing.Point(16, y),
             Font = new System.Drawing.Font("Segoe UI", 9.75F, System.Drawing.FontStyle.Bold),
@@ -110,7 +136,7 @@ public sealed class SettingsForm : Form
             AddRow(label, cbo, ref y);
             y -= 4;
         }
-        Controls.Add(new Label
+        _host.Controls.Add(new Label
         {
             Text = "Kategorinin sistemi chess-results'taki \"Turnuva Tipi\"nden okunur. Takım maçlarında takım adları " +
                    "kağıttaki Kulüp kutularına basılır.",
@@ -118,24 +144,32 @@ public sealed class SettingsForm : Form
             ForeColor = System.Drawing.Color.Gray
         });
         y += 44;
+        int yTemplates = y;
 
-        y = Math.Max(y, BuildRightColumn());
+        _host = pRegion;
+        int yRegion = BuildRegion();
+        _host = pPrinter;
+        int yPrinter = BuildPrinter();
+        _host = pUpdate;
+        int yUpdate = BuildUpdates();
+        int tabContent = new[] { yNotation, yTemplates, yRegion, yPrinter, yUpdate }.Max() + 12;
+        _tabs.Size = new System.Drawing.Size(TabW, tabContent + _tabs.ItemSize.Height + 12);
 
-        // Credit
-        var sep = new Label { BorderStyle = BorderStyle.Fixed3D, Location = new System.Drawing.Point(16, y), Size = new System.Drawing.Size(848, 2) };
-        Controls.Add(sep); y += 8;
+        // ---- Sekmelerin altı: imza ve düğmeler ----
+        _host = this;
+        y = _tabs.Bottom + 10;
         // İmza: adın kendisi GitHub sayfasına götürür (adres metni gösterilmez).
         const string author = "Tunahan Dilercan";
         const string githubUrl = "https://github.com/lgndist/chess-scoresheet-printer";
         var version = typeof(SettingsForm).Assembly.GetName().Version;
         var credit = new LinkLabel
         {
-            AutoSize = true, Location = new System.Drawing.Point(16, y + 4),
+            AutoSize = false, Size = new System.Drawing.Size(TabW, 22), Location = new System.Drawing.Point(12, y),
             ForeColor = System.Drawing.Color.FromArgb(95, 122, 70),
             LinkColor = System.Drawing.Color.FromArgb(95, 122, 70),
             ActiveLinkColor = System.Drawing.Color.FromArgb(118, 150, 86),
             LinkBehavior = LinkBehavior.AlwaysUnderline,
-            Text = $"♞ Geliştiren: {author} — satranç oyuncusu ve hakemi.  (v{version?.ToString(3)})"
+            Text = $"♞ Geliştiren: {author} — satranç oyuncusu ve hakemi. (v{version?.ToString(3)})"
         };
         credit.LinkArea = new LinkArea(credit.Text.IndexOf(author, StringComparison.Ordinal), author.Length);
         credit.LinkClicked += (_, _) =>
@@ -144,26 +178,26 @@ public sealed class SettingsForm : Form
             catch { /* yok say */ }
         };
         new ToolTip().SetToolTip(credit, "GitHub sayfasını aç");
-        Controls.Add(credit);
-        y += 36;
+        _host.Controls.Add(credit);
+        y += 30;
 
         var ok = new Button { Text = "Kaydet", DialogResult = DialogResult.OK, Size = new System.Drawing.Size(100, 32) };
         var cancel = new Button { Text = "Vazgeç", DialogResult = DialogResult.Cancel, Size = new System.Drawing.Size(100, 32) };
-        ok.Location = new System.Drawing.Point(658, y);
-        cancel.Location = new System.Drawing.Point(766, y);
+        cancel.Location = new System.Drawing.Point(_tabs.Right - 100, y);
+        ok.Location = new System.Drawing.Point(cancel.Left - 108, y);
         ok.Click += (_, _) => WriteBack();
-        Controls.Add(ok);
-        Controls.Add(cancel);
+        _host.Controls.Add(ok);
+        _host.Controls.Add(cancel);
         AcceptButton = ok;
         CancelButton = cancel;
-        ClientSize = new System.Drawing.Size(880, y + 46);
+        ClientSize = new System.Drawing.Size(_tabs.Right + 12, y + 46);
 
         LoadFrom();
         ComboKeySearch.AttachAll(this); // harfle seçim (I → Iğdır, Isparta …)
     }
 
-    // ================= Sağ sütun =================
-    private const int RX = 456, RW = 408;
+    // ================= Bölge / Yazıcı / Güncelleme sekmeleri =================
+    private const int RX = 16, RW = 408;
 
     private Label Section(string text, int y) => new()
     {
@@ -174,9 +208,9 @@ public sealed class SettingsForm : Form
 
     private void RightRow(string label, Control input, ref int y)
     {
-        Controls.Add(new Label { Text = label, AutoSize = true, Location = new System.Drawing.Point(RX, y + 4) });
+        _host.Controls.Add(new Label { Text = label, AutoSize = true, Location = new System.Drawing.Point(RX, y + 4) });
         input.SetBounds(RX + 134, y, RW - 134, 25);
-        Controls.Add(input);
+        _host.Controls.Add(input);
         y += 34;
     }
 
@@ -186,11 +220,10 @@ public sealed class SettingsForm : Form
         ForeColor = System.Drawing.Color.Gray
     };
 
-    /// <summary>Bölge ve yazıcı ayarları; sütunun alt y'sini döndürür.</summary>
-    private int BuildRightColumn()
+    /// <summary>Bölge sekmesi; alt y'sini döndürür.</summary>
+    private int BuildRegion()
     {
         int y = 16;
-        Controls.Add(Section("Bölge", y)); y += 24;
         // "(seçilmedi)": varsayılan il yok → ana ekranda il kutusu boş gelir
         _province.Items.Add(NoProvinceItem);
         _province.Items.AddRange(Provinces.List.Skip(1).ToArray());
@@ -202,19 +235,19 @@ public sealed class SettingsForm : Form
             var url = _tsfSite.Text.Trim();
             if (url.StartsWith("http")) try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }); } catch { }
         };
-        Controls.Add(open);
+        _host.Controls.Add(open);
         y += 16;
-        Controls.Add(Note("Program açılınca bu ilin en güncel turnuvası açılır. Yönerge/Tutanak penceresi ilin TSF sitesindeki " +
+        _host.Controls.Add(Note("Program açılınca bu ilin en güncel turnuvası açılır. Yönerge/Tutanak penceresi ilin TSF sitesindeki " +
                           "yönergeyi bulup bilgilerini (son başvuru, iletişim, program saatleri) kullanır.", y, 54));
         y += 58;
         // İlin TSF logosu (ana ekranın köşesinde ve masa kartlarında kullanılır)
         _provinceLogo.Location = new System.Drawing.Point(RX, y);
-        Controls.Add(_provinceLogo);
+        _host.Controls.Add(_provinceLogo);
         // Logo: seçili ilin TSF logosu ya da genel TSF logosu (ana ekran köşesi, masa ve yaka kartları)
-        Controls.Add(new Label { Text = "Logo:", AutoSize = true, Location = new System.Drawing.Point(RX + 68, y + 4) });
+        _host.Controls.Add(new Label { Text = "Logo:", AutoSize = true, Location = new System.Drawing.Point(RX + 68, y + 4) });
         _logoKind.SetBounds(RX + 134, y, RW - 134, 25);
-        Controls.Add(_logoKind);
-        Controls.Add(new Label
+        _host.Controls.Add(_logoKind);
+        _host.Controls.Add(new Label
         {
             AutoSize = false, Size = new System.Drawing.Size(RW - 68, 30), Location = new System.Drawing.Point(RX + 68, y + 30),
             ForeColor = System.Drawing.Color.Gray,
@@ -230,7 +263,7 @@ public sealed class SettingsForm : Form
         btnReg.Click += (_, _) => _openRegistration?.Invoke(this);
         new ToolTip().SetToolTip(btnReg, "Açık turnuvanın TSF kayıt listesi kendiliğinden alınır. Başka bir kayıt formunu seçmek, " +
                                          "listeyi yenilemek ya da bir sporcunun ilini elle düzeltmek için açın.");
-        Controls.Add(btnReg);
+        _host.Controls.Add(btnReg);
         y += 44;
         _province.SelectedIndexChanged += (_, _) =>
         {
@@ -239,12 +272,43 @@ public sealed class SettingsForm : Form
             ShowProvinceLogo();
         };
         _logoKind.SelectedIndexChanged += (_, _) => ShowProvinceLogo();
-
-        Controls.Add(Section("Yazıcı", y)); y += 24;
-        _printerPanel.Location = new System.Drawing.Point(RX, y);
-        Controls.Add(_printerPanel);
-        y += _printerPanel.GetPreferredSize(new System.Drawing.Size(RW, 0)).Height + 8;
         return y;
+    }
+
+    /// <summary>Yazıcı sekmesi.</summary>
+    private int BuildPrinter()
+    {
+        int y = 16;
+        _printerPanel.Location = new System.Drawing.Point(RX, y);
+        _host.Controls.Add(_printerPanel);
+        return y + _printerPanel.GetPreferredSize(new System.Drawing.Size(RW, 0)).Height + 8;
+    }
+
+    /// <summary>Güncelleme sekmesi: sürüm, elle denetim, açılışta denetim.</summary>
+    private int BuildUpdates()
+    {
+        int y = 16;
+        _host.Controls.Add(new Label
+        {
+            Text = $"Kullandığınız sürüm: v{NotasyonOtomasyonu.App.Update.Updater.Current}", AutoSize = true, Location = new System.Drawing.Point(RX, y),
+            Font = new System.Drawing.Font("Segoe UI", 10.5F, System.Drawing.FontStyle.Bold), ForeColor = System.Drawing.Color.FromArgb(95, 122, 70)
+        });
+        y += 32;
+        var btn = new Button
+        {
+            Text = "⬆ Güncellemeleri denetle…", Size = new System.Drawing.Size(RW, 34), Location = new System.Drawing.Point(RX, y),
+            Enabled = _openUpdates is not null
+        };
+        btn.Click += (_, _) => { WriteBack(); _openUpdates?.Invoke(this); };
+        _host.Controls.Add(btn);
+        y += 44;
+        _autoUpdate.Location = new System.Drawing.Point(RX, y);
+        _host.Controls.Add(_autoUpdate);
+        y += 30;
+        _host.Controls.Add(Note("Yeni sürüm GitHub'dan indirilir, doğrulanır ve programın yerine kurulur; program yeni sürümle " +
+                                "yeniden açılır. Ayarlarınız (config.json), şablonlarınız ve çıktılarınız korunur. " +
+                                (_cfg.Updates.LastCheck is { } last ? $"Son denetim: {last:dd.MM.yyyy HH:mm}." : ""), y, 72));
+        return y + 76;
     }
 
     /// <summary>Logo seçenekleri: seçili ilin TSF logosu (il varsa) ve TSF genel logosu; seçim korunur.</summary>
@@ -264,7 +328,8 @@ public sealed class SettingsForm : Form
         var sel = _province.SelectedItem as string;
         bool general = _logoKind.Items.Count < 2 || _logoKind.SelectedIndex == 1;
         var old = _provinceLogo.Image;
-        try { _provinceLogo.Image = Branding.OfficialLogos.Tsf(general || sel == NoProvinceItem ? null : sel, 174); }
+        // Kutunun gerçek piksel boyutunda (ölçeklenmeden, keskin)
+        try { _provinceLogo.Image = Branding.OfficialLogos.Tsf(general || sel == NoProvinceItem ? null : sel, Math.Min(_provinceLogo.ClientSize.Width, _provinceLogo.ClientSize.Height)); }
         catch { _provinceLogo.Image = null; }
         old?.Dispose();
     }
@@ -312,9 +377,9 @@ public sealed class SettingsForm : Form
 
     private void AddRow(string label, Control input, ref int y)
     {
-        Controls.Add(new Label { Text = label, AutoSize = true, Location = new System.Drawing.Point(16, y + 4) });
-        input.SetBounds(150, y, 274, 25);
-        Controls.Add(input);
+        _host.Controls.Add(new Label { Text = label, AutoSize = true, Location = new System.Drawing.Point(16, y + 4) });
+        input.SetBounds(172, y, 252, 25);
+        _host.Controls.Add(input);
         y += 34;
     }
 
@@ -330,6 +395,7 @@ public sealed class SettingsForm : Form
         FillLogoKinds();
         ShowProvinceLogo();
         _printerPanel.LoadFrom(_cfg.Printing);
+        _autoUpdate.Checked = _cfg.Updates.AutoCheck;
         FillSystemCombos();
     }
 
@@ -358,6 +424,7 @@ public sealed class SettingsForm : Form
             }
         }
         _printerPanel.SaveTo(_cfg.Printing);
+        _cfg.Updates.AutoCheck = _autoUpdate.Checked;
         foreach (var (key, cbo) in _systemTemplate)
         {
             if (cbo.SelectedItem is string name && name != ActiveTemplateItem) _cfg.TemplateBySystem[key] = name;

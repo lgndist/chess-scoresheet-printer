@@ -29,7 +29,7 @@ internal sealed class OptionItem
         var info = Error is not null ? $"  — {Error}"
             : Matched is int m && Entries is int n ? $"  — {m}/{n} sporcu bu turnuvada" + (Likely ? " ✓" : "")
             : Entries is int e ? $"  — {e} kayıt" : "";
-        return Option.Title + info;
+        return (Page is { Closed: true } ? "[kayıt bitti] " : "") + Option.Title + info;
     }
 }
 
@@ -289,11 +289,24 @@ public sealed class RegistrationForm : Form
             var opts = await sites.ListOpenAsync(site);
             var keep = _lstOptions.CheckedItems.Cast<OptionItem>().Select(o => o.Option.Tid).ToHashSet();
             var items = opts.Select(o => new OptionItem { Option = o, TitleScore = RegistrationMatch.TitleScore(o.Title, _ctx.EventName) }).ToList();
+            // Kayıtları yeni bitmiş formlar sitedeki listede yok ama sayfaları okunuyor: onlar da seçilebilir.
+            var known = opts.Select(o => o.Tid).Concat(_ctx.Config.Registrations.Values.Where(r => r.Site == site).SelectMany(r => r.Tids)).ToList();
+            if (known.Count > 0)
+            {
+                _lblSnapshot.Text = "Kayıtları yeni bitmiş formlar aranıyor…";
+                foreach (var p in await sites.ListRecentlyClosedAsync(site, known.Max(), opts.Select(o => o.Tid)))
+                    items.Add(new OptionItem
+                    {
+                        Option = new RegistrationOption(p.Tid, p.Title), Page = p, Entries = p.Entries.Count,
+                        TitleScore = RegistrationMatch.TitleScore(p.Title, _ctx.EventName)
+                    });
+            }
             if (_roster.Count > 0)
             {
                 int i = 0;
                 foreach (var it in items)
                 {
+                    if (it.Page is not null) { it.Matched = RegistrationMatch.Overlap(_roster, it.Page.Entries); i++; continue; }
                     _lblSnapshot.Text = $"Kayıt formları sporcularla karşılaştırılıyor ({++i}/{items.Count}): {it.Option.Title}…";
                     try
                     {
