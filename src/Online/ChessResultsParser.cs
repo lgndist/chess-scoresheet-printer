@@ -31,7 +31,13 @@ public static class ChessResultsParser
             if (!int.TryParse(m.Groups[1].Value, out var tnr)) continue;
             if (!seen.Add(tnr)) continue;
 
-            result.Add(new TournamentRef(tnr, name));
+            // Arama sonuçlarında satırda "den itibaren / e kadar" tarihleri ("2026/10/17") bulunur.
+            var dates = (a.Closest("tr")?.Children ?? Enumerable.Empty<IElement>())
+                .Select(td => Clean(td.TextContent))
+                .Select(t => DateTime.TryParseExact(t, "yyyy/MM/dd", System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.None, out var d) ? d : (DateTime?)null)
+                .Where(d => d is not null).ToList();
+            result.Add(new TournamentRef(tnr, name, dates.ElementAtOrDefault(0), dates.ElementAtOrDefault(1) ?? dates.ElementAtOrDefault(0)));
         }
         return result;
     }

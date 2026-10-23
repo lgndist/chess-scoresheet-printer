@@ -1,7 +1,17 @@
 namespace NotasyonOtomasyonu.Online;
 
 /// <summary>Federasyon listesindeki bir turnuva girişi (tnr + ad).</summary>
-public record TournamentRef(int Tnr, string Name);
+/// <param name="Start">Başlangıç tarihi (arama sonuçlarında var; federasyon listesinde yok).</param>
+/// <param name="End">Bitiş tarihi.</param>
+public record TournamentRef(int Tnr, string Name, DateTime? Start = null, DateTime? End = null)
+{
+    /// <summary>
+    /// Güncel mi: son <paramref name="days"/> gün içinde bitmiş, sürüyor ya da yaklaşıyor. Tarihi
+    /// bilinmeyen (federasyon listesindeki, zaten yakın zamanda güncellenmiş) turnuva güncel sayılır.
+    /// </summary>
+    public bool IsRecent(DateTime today, int days = 14)
+        => (End ?? Start) is not DateTime d || d.Date >= today.Date.AddDays(-days);
+}
 
 /// <summary>Bir etkinliğin bir kategorisi/grubu (ör. "A Kategorisi"). Her kategori ayrı tnr'dir.</summary>
 public record CategoryRef(int Tnr, string Name, bool IsCurrent);

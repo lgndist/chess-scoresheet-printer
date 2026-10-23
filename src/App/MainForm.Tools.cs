@@ -103,6 +103,7 @@ public partial class MainForm
 
     private void OpenReport()
     {
+        if (BlockedForTsfEvent("Yönerge / tutanak")) return;
         var cats = ToolCategories();
         if (cats is null) return;
         UpdateConfigFromUi();
@@ -116,6 +117,15 @@ public partial class MainForm
 
     private void OpenRegistration()
     {
+        if (IsTsfEvent && _config.Registrations.GetValueOrDefault(_eventTnr!.Value.ToString()) is { } treg)
+        {
+            MessageBox.Show(this,
+                $"Bu turnuvanın TSF kayıt listesi alındı: {treg.Entries.Count} sporcu ({treg.FetchedAt:dd.MM.yyyy HH:mm}).\n\n" +
+                string.Join("\n", RegistrationCategories.Counts(treg).Select(c => $"• {c.Name}: {c.Count} sporcu → {c.Boards} masa")) +
+                "\n\nSporcular chess-results'taki eşleştirmeyle turnuva yayımlanınca eşlenir; iller notasyona o zaman basılır.",
+                "Kayıt listesi", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
         var cats = ToolCategories();
         if (cats is null) return;
         UpdateConfigFromUi();
@@ -124,6 +134,36 @@ public partial class MainForm
         using var f = new RegistrationForm(ctx) { Icon = Icon };
         f.ShowDialog(this);
         ShowPairings(rbOnline.Checked ? _syncedTournament : _fileTournament); // listedeki İl sütunu güncellensin
+    }
+
+    private int _regSyncTnr;
+    private readonly Dictionary<int, DateTime> _regSyncMiss = new(); // formu bulunamayan turnuva → son deneme
+
+    /// <summary>
+    /// Turnuvanın TSF kayıt listesini arka planda getirir (yoksa) ya da yeniler (6 saatten eskiyse).
+    /// İller ve masa kartı adetleri bu listeden gelir. Aynı turnuva için aynı anda tek eşitleme çalışır.
+    /// </summary>
+    private async Task SyncRegistrationAsync(int tnr, bool force = false)
+    {
+        if (_regSyncTnr == tnr) return;
+        // Kayıt formu az önce bulunamadıysa her açılışta siteyi yeniden yoklama (30 dk).
+        if (!force && _regSyncMiss.TryGetValue(tnr, out var miss) && DateTime.Now - miss < TimeSpan.FromMinutes(30)
+            && ProvinceBook.For(_config, tnr) is null) return;
+        _regSyncTnr = tnr;
+        try
+        {
+            var cats = CurrentCategories();
+            if (cats.Count == 0) cats.Add(new CategoryRef(tnr, CurrentEventName(), true));
+            var before = _config.Registrations.GetValueOrDefault(tnr.ToString());
+            var r = await RegistrationSync.EnsureAsync(_config, _online, tnr, CurrentEventName(), CurrentProvince(), cats, force);
+            if (_eventTnr != tnr) return; // bu arada başka turnuva açıldı
+            if (r.Changed || !ReferenceEquals(before, r.Registration)) _config.Save(_configPath);
+            if (r.Message.Length > 0) Log(r.Message);
+            if (r.Registration is null) _regSyncMiss[tnr] = DateTime.Now; else _regSyncMiss.Remove(tnr);
+            if (r.Changed) ShowPairings(rbOnline.Checked ? _syncedTournament : _fileTournament); // İl sütunu
+        }
+        catch (Exception ex) { Log("Uyarı: kayıt listesi eşitlenemedi — " + ex.Message); }
+        finally { if (_regSyncTnr == tnr) _regSyncTnr = 0; }
     }
 
     /// <summary>Basılacak eşleştirmeye sporcuların illerini ekler (kayıt listesi / elle / öğrenilen).</summary>
@@ -135,7 +175,7 @@ public partial class MainForm
         var cats = ToolCategories();
         if (cats is null) return;
         UpdateConfigFromUi();
-        var ctx = new CardsContext(CurrentEventName(), cats, BoardCountAsync,
+        var ctx = new CardsContext(CurrentEventName(), CardCategories(cats), BoardCountAsync,
             _config, () => _config.Save(_configPath), AppContext.BaseDirectory, _outputDir);
         using var f = new CardsForm(ctx) { Icon = Icon };
         f.ShowDialog(this);
@@ -156,6 +196,7 @@ public partial class MainForm
 
     private void OpenBadges()
     {
+        if (BlockedForTsfEvent("Yaka kartları (hakem listesi chess-results'tan gelir)")) return;
         if (!rbOnline.Checked || _eventTnr is not int tnr)
         {
             MessageBox.Show(this, "Önce chess-results'tan bir turnuva seçin.", "Turnuva seçilmedi", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -182,7 +223,12 @@ public partial class MainForm
         }
         catch { /* tempo bilinmiyorsa birlik kontrolü bu kategoriyi atlar */ }
         var r = await RoundsOfAsync(c.Tnr);
-        if (r.Current <= 0) return new CategoryStats(0, 0, tc);
+        if (r.Current <= 0)
+        {
+            // Turnuva başlamadı: sporcu sayısı TSF kayıt listesinden (EK-C sistem/tur kontrolü için).
+            var reg = ProvinceBook.For(_config, _eventTnr, CurrentEventName());
+            return new CategoryStats(RegistrationCategories.For(reg, c.Name)?.Count ?? 0, 0, tc);
+        }
         var t = await _online.GetPairingsAsync(c.Tnr, 1, r.System);
         int maxRating = t.Pairings.SelectMany(p => new[] { p.White.Rating, p.Black?.Rating }).Max(x => x ?? 0);
         int players = r.System.IsTeam()
@@ -192,11 +238,42 @@ public partial class MainForm
     }
 
     /// <summary>Kategorinin masa sayısı: son eşlenen turdaki (başlamadıysa 1. tur) BAY dışı masalar.</summary>
-    private async Task<int> BoardCountAsync(CategoryRef c)
+    /// <summary>
+    /// Kategorinin masa sayısı: önce turnuvanın TSF kayıt listesindeki sporcu sayısından (masa = sporcu ÷ 2;
+    /// turnuva başında basılan kâğıtlar buna göre), kayıt yoksa chess-results'taki son eşlenen turdan.
+    /// </summary>
+    private async Task<(int Boards, string Source)> BoardCountAsync(CategoryRef c)
     {
+        var reg = ProvinceBook.For(_config, _eventTnr, CurrentEventName());
+        if (RegistrationCategories.For(reg, c.Name) is { Count: > 0 } rc)
+            return (rc.Boards, $"TSF kayıt listesi: {rc.Name} — {rc.Count} sporcu → {rc.Boards} masa" + (rc.Count % 2 == 1 ? " (1 BAY)" : ""));
+        if (c.Tnr <= 0) return (0, "Kayıt listesinde bu kategori yok");
         var r = await RoundsOfAsync(c.Tnr);
         int round = r.Current > 0 ? r.Current : 1;
         var t = await _online.GetPairingsAsync(c.Tnr, round, r.System);
-        return t.Pairings.Count(p => !p.IsBye);
+        return (t.Pairings.Count(p => !p.IsBye), $"chess-results: {round}. tur eşleştirmesi (kayıt listesi yok)");
+    }
+
+    /// <summary>
+    /// Kartı basılacak kategoriler: chess-results kategorileri + kayıt listesinde olup chess-results'ta
+    /// (henüz) olmayanlar. Kayıt kategorilerinin kimliği adından türetilir (renk hatırlansın diye kalıcı).
+    /// </summary>
+    private List<CategoryRef> CardCategories(List<CategoryRef> cats)
+    {
+        var reg = ProvinceBook.For(_config, _eventTnr, CurrentEventName());
+        if (reg is not { Entries.Count: > 0 }) return cats;
+        var list = cats.ToList();
+        foreach (var rc in RegistrationCategories.Counts(reg))
+            if (!cats.Any(c => RegistrationCategories.Same(rc.Name, c.Name)))
+                list.Add(new CategoryRef(StableId(rc.Name), rc.Name, false));
+        return list;
+    }
+
+    /// <summary>Addan kalıcı negatif kimlik (FNV-1a): chess-results numaralarıyla çakışmaz.</summary>
+    private static int StableId(string name)
+    {
+        uint h = 2166136261;
+        foreach (var ch in EventGrouping.Fold(name)) { h ^= ch; h *= 16777619; }
+        return -(int)(h & 0x3FFFFFFF) - 1;
     }
 }

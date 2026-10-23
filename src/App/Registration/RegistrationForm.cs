@@ -430,6 +430,7 @@ public sealed class RegistrationForm : Form
             ? "Bu turnuva için kayıt listesi henüz alınmadı. Turnuva başında bir kez almanız yeterli; kayıt kapanınca sitede liste kalmaz."
             : $"Kayıt listesi {reg.FetchedAt:dd.MM.yyyy HH:mm} tarihinde alındı: {reg.Entries.Count} sporcu, {reg.Tids.Count} form" +
               (string.Join(", ", reg.Titles) is { Length: > 0 } t ? $" ({t})" : "") + ". Tekrar alınmasına gerek yok." +
+              $"\nKategoriler: {string.Join(" · ", RegistrationCategories.Counts(reg).Select(c => $"{c.Name} {c.Count}"))}" +
               (_attachedFrom is not null ? $"\nBu liste başka bir turnuva açıkken alınmıştı; başlığı bu turnuvaya uyduğu için bu turnuvaya da bağlandı." : "");
     }
 

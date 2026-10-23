@@ -19,12 +19,14 @@ public sealed class ChessResultsService : IDisposable
 
     /// <summary>
     /// Türkiye turnuvalarını getirir. İl ve/veya metin verilirse ad içinde (Türkçe-duyarsız) süzer;
-    /// varsayılan olarak aynı etkinliğin kategorilerini tek girişe indirir.
+    /// varsayılan olarak aynı etkinliğin kategorilerini tek girişe indirir. Metin verilmezse (il
+    /// seçilince) yalnız güncel turnuvalar listelenir: son <paramref name="recentDays"/> günde biten,
+    /// süren ya da yaklaşan. Daha eskileri adla aranır ya da numarasıyla açılır.
     /// Federasyon sayfası yalnızca son ~50 turnuvayı gösterdiğinden, il için orada sonuç yoksa
     /// chess-results'ın turnuva arama formuna (son güncellenene göre) düşülür.
     /// </summary>
     public async Task<IReadOnlyList<TournamentRef>> SearchTurkeyAsync(
-        string? text, string? province = null, bool dedupe = true, CancellationToken ct = default)
+        string? text, string? province = null, bool dedupe = true, CancellationToken ct = default, int recentDays = 14)
     {
         var html = await _client.FetchAsync(ChessResultsClient.FederationUrl("TUR"), ct).ConfigureAwait(false);
         IReadOnlyList<TournamentRef> all = ChessResultsParser.ParseFederationList(html);
@@ -38,6 +40,11 @@ public sealed class ChessResultsService : IDisposable
                 list = Filter(found, text, province);
             }
             catch (HttpRequestException) { /* arama formu çalışmazsa boş liste */ }
+        }
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            var today = DateTime.Today;
+            list = list.Where(t => t.IsRecent(today, recentDays)).ToList();
         }
         return dedupe ? EventGrouping.Dedupe(list) : list.ToList();
     }

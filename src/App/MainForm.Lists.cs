@@ -179,6 +179,7 @@ public partial class MainForm
             var skipped = new List<string>();
             foreach (var cat in cats)
             {
+                if (cat.Tnr < 0) { skipped.Add(cat.Name); continue; } // kayıttaki turnuva: henüz eşleştirme yok
                 SetStatus($"Liste hazırlanıyor: {cat.Name}…", ok: true);
                 var r = await RoundsOfAsync(cat.Tnr);
                 if (results && forceRound is null && !_ranked.ContainsKey(cat.Tnr))

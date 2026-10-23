@@ -8,7 +8,7 @@ namespace NotasyonOtomasyonu.App.Cards;
 public sealed record CardsContext(
     string EventName,
     IReadOnlyList<CategoryRef> Categories,
-    Func<CategoryRef, Task<int>> BoardCount,
+    Func<CategoryRef, Task<(int Boards, string Source)>> BoardCount,
     AppConfig Config,
     Action SaveConfig,
     string BaseDir,
@@ -179,8 +179,8 @@ public sealed class CardsForm : Form
         var gridPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(8, 12, 14, 8) };
         var hint = new Label
         {
-            Dock = DockStyle.Top, Height = 44, ForeColor = Color.DimGray,
-            Text = "Adet, kategorideki masa sayısı kadar önerilir (yeniden basım için değiştirebilirsiniz). " +
+            Dock = DockStyle.Top, Height = 62, ForeColor = Color.DimGray,
+            Text = "Adet, TSF kayıt listesindeki sporcu sayısına göre (masa = sporcu ÷ 2) önerilir; kayıt yoksa chess-results'taki masa sayısı (yeniden basım için değiştirebilirsiniz). " +
                    "Her kategoriye otomatik ayrı bir tema rengi atanır ve hatırlanır; değiştirmek için renge tıklayın."
         };
         gridPanel.Controls.Add(_grid);
@@ -265,10 +265,13 @@ public sealed class CardsForm : Form
             if (IsDisposed) return;
             if (row.Tag is not CategoryRef c) { _countsPending--; continue; }
             int n;
-            try { n = await _ctx.BoardCount(c); }
-            catch { n = 0; }
+            string source;
+            try { (n, source) = await _ctx.BoardCount(c); }
+            catch { n = 0; source = "Masa sayısı bulunamadı"; }
             if (IsDisposed) return;
-            row.Cells["Masa"].Value = n > 0 ? n.ToString() : "?";
+            // Kayıt listesinde tek sporculu kategori: masa 0 (sporcu BAY); "?" yalnız sayı bulunamadıysa.
+            row.Cells["Masa"].Value = n > 0 || source.StartsWith("TSF") ? n.ToString() : "?";
+            row.Cells["Masa"].ToolTipText = source;
             if (!_countEdited.Contains(row.Index))
             {
                 row.Cells["Adet"].Value = Math.Max(1, n).ToString();

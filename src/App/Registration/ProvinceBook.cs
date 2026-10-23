@@ -3,11 +3,12 @@ using NotasyonOtomasyonu.Online;
 
 namespace NotasyonOtomasyonu.App.Registration;
 
-public enum ProvinceSource { None, Manual, Registration, Probable, Learned }
+public enum ProvinceSource { None, Manual, Registration, Probable, OtherList, Learned }
 
 /// <summary>
-/// Notasyondaki "İl" kutusuna yazılacak il. Sıra: bu turnuvada elle verilen → kontrol ekranında
-/// onaylanan eşleşme → kayıt listesiyle anlık eşleşme → önceki turnuvalardan öğrenilen il.
+/// Notasyondaki "İl" kutusuna yazılacak il. Sıra: bu turnuvada elle verilen → bu turnuvanın kayıt
+/// listesi (kontrol ekranında onaylanan ya da anlık eşleşme; en eksiksiz kaynak) → önceki turnuvaların
+/// kayıt listeleri (yalnız birebir ad, en yeni liste) → önceki turnuvalardan öğrenilen il.
 /// Hiçbiri yoksa kutu boş kalır.
 /// </summary>
 public static class ProvinceBook
@@ -35,7 +36,8 @@ public static class ProvinceBook
     public static Tournament Apply(Tournament t, AppConfig cfg, int? eventTnr, string? eventName = null)
     {
         var reg = For(cfg, eventTnr, eventName);
-        if (reg is null && cfg.PlayerProvinces.Count == 0) return t;
+        if (reg is null && cfg.PlayerProvinces.Count == 0 && cfg.Registrations.Count == 0) return t;
+        var others = OtherLists(cfg, reg);
 
         var roster = t.Pairings
             .SelectMany(p => p.Black is null ? new[] { (p.White, p.Category) } : new[] { (p.White, p.Category), (p.Black, p.Category) })
@@ -50,7 +52,7 @@ public static class ProvinceBook
         Player With(Player pl)
         {
             if (!string.IsNullOrWhiteSpace(pl.Province)) return pl;
-            var (prov, _) = Lookup(pl.Name, cfg, reg, live);
+            var (prov, _) = Lookup(pl.Name, cfg, reg, live, others);
             return prov is null ? pl : pl with { Province = prov };
         }
         return t with
@@ -67,11 +69,31 @@ public static class ProvinceBook
         var live = reg is { Entries.Count: > 0 }
             ? ProvinceMatcher.MatchAll(players, reg.Entries).ToDictionary(m => ProvinceMatcher.PersonKey(m.Player.Name))
             : new Dictionary<string, ProvinceMatch>();
-        return name => Lookup(name, cfg, reg, live).Province;
+        var others = OtherLists(cfg, reg);
+        return name => Lookup(name, cfg, reg, live, others).Province;
+    }
+
+    /// <summary>
+    /// Önceki turnuvaların kayıt listelerinden ad → il (ad sözcükleri birebir aynı olanlar; en yeni liste
+    /// kazanır). Bir listede aynı adla farklı illerden kayıt varsa o ad kullanılmaz.
+    /// </summary>
+    public static Dictionary<string, string> OtherLists(AppConfig cfg, EventRegistration? current)
+    {
+        var map = new Dictionary<string, string>();
+        foreach (var reg in cfg.Registrations.Values.Where(r => !ReferenceEquals(r, current) && r.Entries.Count > 0).OrderBy(r => r.FetchedAt))
+        {
+            if (current is not null && reg.Tids.Count > 0 && reg.Tids.SequenceEqual(current.Tids)) continue; // aynı liste
+            foreach (var g in reg.Entries.GroupBy(e => ProvinceMatcher.PersonKey(e.FullName)))
+            {
+                var provs = g.Select(e => Provinces.Print(e.Province)).Where(x => x.Length > 0).Distinct().ToList();
+                if (provs.Count == 1) map[g.Key] = provs[0];
+            }
+        }
+        return map;
     }
 
     public static (string? Province, ProvinceSource Source) Lookup(string name, AppConfig cfg, EventRegistration? reg,
-        IReadOnlyDictionary<string, ProvinceMatch>? live = null)
+        IReadOnlyDictionary<string, ProvinceMatch>? live = null, IReadOnlyDictionary<string, string>? others = null)
     {
         var key = ProvinceMatcher.PersonKey(name);
         if (reg is not null)
@@ -88,6 +110,7 @@ public static class ProvinceBook
                     return (null, ProvinceSource.None); // aynı adlı, farklı illi kayıtlar: tahmin etme
             }
         }
+        if (others is not null && others.TryGetValue(key, out var ol)) return (ol, ProvinceSource.OtherList);
         return cfg.PlayerProvinces.TryGetValue(key, out var l) && l.Length > 0
             ? (l, ProvinceSource.Learned) : (null, ProvinceSource.None);
     }

@@ -206,17 +206,19 @@ public partial class MainForm : Form
                 SetBusy(true);
                 SetStatus($"{prov} ilindeki güncel turnuvalar yükleniyor…", ok: true);
                 var list = await _online.SearchTurkeyAsync("", prov);
-                if (list.Count > 0)
+                var tsf = await TsfOpenFormsAsync(prov, list);
+                if (list.Count > 0 || tsf.Count > 0)
                 {
                     var ordered = list.OrderByDescending(t => t.Tnr).ToList();
                     _loading = true;
                     cboTournament.Items.Clear();
-                    foreach (var tr in ordered)
-                        cboTournament.Items.Add(new Item<TournamentRef>($"{tr.Name}  (#{tr.Tnr})", tr));
-                    cboTournament.SelectedIndex = 0; // en güncel başta
+                    foreach (var tr in tsf.Concat(ordered))
+                        cboTournament.Items.Add(new Item<TournamentRef>(ComboLabel(tr), tr));
+                    // Kullanıcı en son kayıttaki bir turnuvayla çalışıyorsa (form hâlâ açık) o; yoksa en güncel chess-results.
+                    var latest = tsf.FirstOrDefault(t => t.Tnr == _config.Online.SelectedTnr) ?? ordered.FirstOrDefault() ?? tsf[0];
+                    cboTournament.SelectedIndex = cboTournament.Items.Cast<Item<TournamentRef>>().ToList().FindIndex(i => i.Value.Tnr == latest.Tnr);
                     _loading = false;
 
-                    var latest = ordered[0];
                     SetStatus($"{prov} — en güncel: {latest.Name}", ok: true);
                     SetBusy(false);
                     await LoadEventAsync(latest.Tnr, silent: true, preferRememberedCategory: false);
@@ -260,7 +262,8 @@ public partial class MainForm : Form
             _eventTnr = tnr;
             cboTournament.Items.Clear();
             var label = o.SelectedTournamentName ?? $"Turnuva {tnr}";
-            cboTournament.Items.Add(new Item<TournamentRef>(label, new TournamentRef(tnr, label)));
+            var tr = new TournamentRef(tnr, label);
+            cboTournament.Items.Add(new Item<TournamentRef>(tnr < 0 ? ComboLabel(tr) : label, tr));
             cboTournament.SelectedIndex = 0;
         }
         if (o.SelectedCategoryTnr is int ctnr)
@@ -371,11 +374,12 @@ public partial class MainForm : Form
             string? prov = cboProvince.SelectedItem?.ToString();
             if (prov == Provinces.All) prov = null;
             var list = await _online.SearchTurkeyAsync(txtSearch.Text, prov);
+            var tsf = prov is null ? new List<TournamentRef>() : await TsfOpenFormsAsync(prov, list, txtSearch.Text);
 
             _loading = true;
             cboTournament.Items.Clear();
-            foreach (var tr in list)
-                cboTournament.Items.Add(new Item<TournamentRef>($"{tr.Name}  (#{tr.Tnr})", tr));
+            foreach (var tr in tsf.Concat(list))
+                cboTournament.Items.Add(new Item<TournamentRef>(ComboLabel(tr), tr));
             _loading = false;
 
             if (cboTournament.Items.Count == 0)
@@ -430,6 +434,7 @@ public partial class MainForm : Form
 
     private async Task LoadEventAsync(int tnr, bool silent = false, bool preferRememberedCategory = true)
     {
+        if (tnr < 0) { await LoadRegistrationEventAsync(tnr, silent); return; } // TSF kayıttaki turnuva
         int currentRound;
         bool detailsHidden;
         IReadOnlyList<CategoryRef> cats;
@@ -477,6 +482,8 @@ public partial class MainForm : Form
 
         // Kısayollar için diğer kategorilerin sistem/son turunu arka planda öğren.
         _ = PrefetchCategoryRoundsAsync(cats, tnr);
+        // Turnuvanın TSF kayıt listesi (il ve kategori sayıları) arka planda getirilir/yenilenir.
+        _ = SyncRegistrationAsync(tnr);
 
         if (currentRound == 0 && !detailsHidden)
         {
@@ -527,7 +534,8 @@ public partial class MainForm : Form
         _loading = true;
         if (existing is null)
         {
-            existing = new Item<TournamentRef>($"{name}  (#{tnr})", new TournamentRef(tnr, name));
+            var tr = new TournamentRef(tnr, name);
+            existing = new Item<TournamentRef>(ComboLabel(tr), tr);
             cboTournament.Items.Insert(0, existing);
         }
         cboTournament.SelectedItem = existing;
@@ -739,6 +747,7 @@ public partial class MainForm : Form
     /// </summary>
     private async Task RefreshAllAsync()
     {
+        if (IsTsfEvent) { await LoadEventAsync(_eventTnr!.Value); return; } // kayıt formunu yeniden oku
         var cats = CurrentCategories();
         var sel = SelectedCategory();
         if (sel is null || _eventTnr is null) { await SyncPairingsAsync(showWarnings: true); return; }
@@ -761,6 +770,7 @@ public partial class MainForm : Form
         }
         await SyncPairingsAsync(showWarnings: true);
         await PrefetchCategoryRoundsAsync(cats, _eventTnr.Value);
+        _ = SyncRegistrationAsync(_eventTnr.Value);
         FlashChangedRounds(cats, before);
         Log($"🔄 Yenilendi: {string.Join(", ", cats.Select(QuickText).Select(t => t.Replace("🖨 ", "")))}");
     }
@@ -779,6 +789,7 @@ public partial class MainForm : Form
                     "Seçim yok", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
+        if (catTnr < 0) { SetStatus("Turnuva henüz chess-results'ta yok: eşleştirme yayımlanınca listeden seçin.", ok: false); return; }
         int round = SelectedRound();
         int seq = ++_syncSeq;
         SetBusy(true);
@@ -864,6 +875,7 @@ public partial class MainForm : Form
 
     private async void btnPrintAll_Click(object? sender, EventArgs e)
     {
+        if (BlockedForTsfEvent("Notasyon")) return;
         var cats = CurrentCategories();
         if (cats.Count == 0) { SetStatus("Önce bir turnuva yükleyin.", ok: false); return; }
         SetBusy(true);
