@@ -20,4 +20,8 @@ public record EventInfo(
     int MaxRound,
     int CurrentRound,
     IReadOnlyList<CategoryRef> Categories,
-    NotasyonOtomasyonu.Core.TournamentSystem System = NotasyonOtomasyonu.Core.TournamentSystem.Unknown);
+    NotasyonOtomasyonu.Core.TournamentSystem System = NotasyonOtomasyonu.Core.TournamentSystem.Unknown,
+    int RankedRound = 0); // sıralaması yayımlanmış son tur ("5. Turdan Sonra Sıralama"); yoksa 0
+
+/// <summary>chess-results'tan okunmuş, olduğu gibi basılacak bir tablo (ör. tur sonrası sıralama).</summary>
+public sealed record ListTable(string Title, IReadOnlyList<string> Headers, IReadOnlyList<IReadOnlyList<string>> Rows);

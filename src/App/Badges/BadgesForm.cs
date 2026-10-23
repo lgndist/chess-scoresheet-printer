@@ -30,7 +30,9 @@ public sealed class BadgesForm : Form
     private readonly PictureBox _picLogo = new() { Width = 120, Height = 80, SizeMode = PictureBoxSizeMode.Zoom, BorderStyle = BorderStyle.FixedSingle, BackColor = Color.White };
     private readonly Button _btnLogo = new() { Text = "🖼 Logo seç…", AutoSize = true, Height = 30 };
     private readonly Button _btnLogoClear = new() { Text = "Kaldır", AutoSize = true, Height = 30 };
-    private readonly ComboBox _cboSize = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 170 };
+    private readonly ComboBox _cboSize = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 280 };
+    private readonly CheckBox _chkSimpleRoles = new() { Text = "Görevi sade yaz: Başhakem / Hakem", AutoSize = true };
+    private static readonly string[] Sizes = { "85x54", "90x60", "95x135" };
     private readonly CheckBox _chkCrop = new() { Text = "Kesim (crop) işaretleri", AutoSize = true };
     private readonly PictureBox _picPreview = new() { SizeMode = PictureBoxSizeMode.Zoom, Dock = DockStyle.Fill };
     private readonly DataGridView _grid = new();
@@ -52,10 +54,12 @@ public sealed class BadgesForm : Form
         BackColor = Color.FromArgb(250, 250, 247);
 
         BuildLayout();
-        _cboSize.Items.AddRange(new object[] { "85 × 54 mm (2×5 / sayfa)", "90 × 60 mm (2×4 / sayfa)" });
-        _cboSize.SelectedIndex = Cfg.Size == "90x60" ? 1 : 0;
+        _cboSize.Items.AddRange(new object[] { "85 × 54 mm yatay (2×5 / sayfa)", "90 × 60 mm yatay (2×4 / sayfa)", "95 × 135 mm dikey, büyük (2×2 / sayfa)" });
+        _cboSize.SelectedIndex = Math.Max(0, Array.IndexOf(Sizes, Cfg.Size));
+        _chkSimpleRoles.Checked = Cfg.SimpleRoles;
+        _chkSimpleRoles.CheckedChanged += (_, _) => { Cfg.SimpleRoles = _chkSimpleRoles.Checked; _ctx.SaveConfig(); UpdatePreview(); };
         _chkCrop.Checked = Cfg.CropMarks;
-        _cboSize.SelectedIndexChanged += (_, _) => { Cfg.Size = _cboSize.SelectedIndex == 1 ? "90x60" : "85x54"; _ctx.SaveConfig(); UpdateSummary(); UpdatePreview(); };
+        _cboSize.SelectedIndexChanged += (_, _) => { Cfg.Size = Sizes[Math.Max(0, _cboSize.SelectedIndex)]; _ctx.SaveConfig(); UpdateSummary(); UpdatePreview(); };
         _chkCrop.CheckedChanged += (_, _) => { Cfg.CropMarks = _chkCrop.Checked; _ctx.SaveConfig(); };
         LoadLogo();
 
@@ -84,6 +88,8 @@ public sealed class BadgesForm : Form
         left.Controls.Add(Header("Kart ölçüsü"));
         left.Controls.Add(_cboSize);
         left.Controls.Add(_chkCrop);
+        left.Controls.Add(Header("Görev yazımı"));
+        left.Controls.Add(_chkSimpleRoles);
         left.Controls.Add(Header("Unvan renkleri"));
         foreach (var g in Arbiters.Grades)
         {
@@ -226,13 +232,14 @@ public sealed class BadgesForm : Form
         }
     }
 
-    private static BadgeSpec? SpecOf(DataGridViewRow row)
+    private BadgeSpec? SpecOf(DataGridViewRow row)
     {
         var name = row.Cells["Ad"].Value?.ToString()?.Trim() ?? "";
         if (name.Length == 0) return null;
         var grade = row.Cells["Unvan"].Value?.ToString() ?? Arbiters.Il;
         int.TryParse(row.Cells["Adet"].Value?.ToString(), out var copies);
-        return new BadgeSpec(name, row.Cells["Gorev"].Value?.ToString() ?? "Hakem", grade,
+        // Karta basılan görev: sade yazımda "Başhakem" ya da "Hakem" (tablodaki görev değişmez).
+        return new BadgeSpec(name, Arbiters.PrintedRole(row.Cells["Gorev"].Value?.ToString(), Cfg.SimpleRoles), grade,
                              CardLayout.ParseColor(Arbiters.ColorFor(grade), Color.Gray), row.Cells["Foto"].Tag as string, copies);
     }
 

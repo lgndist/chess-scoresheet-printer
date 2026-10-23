@@ -21,17 +21,8 @@ public sealed class SettingsForm : Form
     // Sağ sütun: bölge (varsayılan il, TSF sitesi) ve yazıcı
     private readonly ComboBox _province = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly TextBox _tsfSite = new();
-    private readonly ComboBox _printer = new() { DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly ComboBox _tray = new() { DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly NumericUpDown _copies = new() { Minimum = 1, Maximum = 20, Value = 1 };
-    private readonly ToggleSwitch _silent = new() { Text = "Doğrudan yazdır (önizleme ve yazıcı penceresi açılmadan)" };
-    private readonly Button _btnPrefs = new() { Text = "Yazıcı tercihleri… (sessiz mod, kalite)", Height = 30 };
-    private readonly LinkLabel _lnkPrefsReset = new() { Text = "Sıfırla", AutoSize = true };
-    private readonly Label _lblPrefs = new() { AutoSize = true, ForeColor = System.Drawing.Color.Gray };
-    private readonly Dictionary<string, string> _devModes = new(StringComparer.OrdinalIgnoreCase);
-    private const string DefaultPrinterItem = "(Windows varsayılan yazıcısı)";
+    private readonly PrinterSettingsPanel _printerPanel = new(RW);
     private const string NoProvinceItem = "(seçilmedi)";
-    private const string AutoTrayItem = "(otomatik)";
 
     private const string ActiveTemplateItem = "(etkin şablon)";
     private static readonly (string Key, string Label)[] SystemRows =
@@ -131,7 +122,7 @@ public sealed class SettingsForm : Form
         Controls.Add(sep); y += 8;
         // İmza: adın kendisi GitHub sayfasına götürür (adres metni gösterilmez).
         const string author = "Tunahan Dilercan";
-        const string githubUrl = "https://github.com/TunahanDilercan/chess-scoresheet-printer";
+        const string githubUrl = "https://github.com/lgndist/chess-scoresheet-printer";
         var version = typeof(SettingsForm).Assembly.GetName().Version;
         var credit = new LinkLabel
         {
@@ -215,55 +206,10 @@ public sealed class SettingsForm : Form
         _province.SelectedIndexChanged += (_, _) => _tsfSite.Text = TsfSites.SiteFor(_province.SelectedItem as string, _cfg.TsfSites) ?? "";
 
         Controls.Add(Section("Yazıcı", y)); y += 24;
-        RightRow("Hedef yazıcı:", _printer, ref y);
-        RightRow("Kağıt kaynağı:", _tray, ref y);
-        _copies.Width = 70;
-        RightRow("Kopya sayısı:", _copies, ref y);
-        _copies.Width = 70;
-        _btnPrefs.SetBounds(RX + 134, y, 250, 30);
-        Controls.Add(_btnPrefs);
-        _lnkPrefsReset.Location = new System.Drawing.Point(RX + 392, y + 7);
-        Controls.Add(_lnkPrefsReset);
-        y += 34;
-        _lblPrefs.Location = new System.Drawing.Point(RX + 134, y - 2);
-        Controls.Add(_lblPrefs);
-        y += 22;
-        _btnPrefs.Click += (_, _) =>
-        {
-            var name = PrinterNameOf(_printer.SelectedItem as string);
-            var result = PrinterPreferences.Edit(this, name, _devModes.GetValueOrDefault(name));
-            if (result is not null) _devModes[name] = result;
-            UpdatePrefsLabel();
-        };
-        _lnkPrefsReset.LinkClicked += (_, _) => { _devModes.Remove(PrinterNameOf(_printer.SelectedItem as string)); UpdatePrefsLabel(); };
-        _silent.SetBounds(RX, y, RW, 28);
-        Controls.Add(_silent);
-        y += 34;
-        Controls.Add(Note("Yazıcının sessiz modu, baskı kalitesi gibi ayarları üreticiye özeldir: \"Yazıcı tercihleri…\" yazıcının " +
-                          "kendi penceresini açar; seçtikleriniz her baskıda uygulanır. \"Doğrudan yazdır\" açıkken önizleme ve " +
-                          "yazıcı penceresi açılmaz. Kopya sayısı her baskı işine uygulanır (notasyon nüshası ayrıca belirlenir).", y, 90));
-        y += 96;
-        _printer.SelectedIndexChanged += (_, _) => { FillTrays(null); UpdatePrefsLabel(); };
+        _printerPanel.Location = new System.Drawing.Point(RX, y);
+        Controls.Add(_printerPanel);
+        y += _printerPanel.GetPreferredSize(new System.Drawing.Size(RW, 0)).Height + 8;
         return y;
-    }
-
-    private static string PrinterNameOf(string? item)
-        => string.IsNullOrWhiteSpace(item) || item == DefaultPrinterItem ? PrintRouter.DefaultPrinter() : item;
-
-    private void UpdatePrefsLabel()
-    {
-        bool has = _devModes.ContainsKey(PrinterNameOf(_printer.SelectedItem as string));
-        _lblPrefs.Text = has ? "✓ Bu yazıcı için kayıtlı tercihler her baskıda uygulanır." : "Yazıcının kendi varsayılan ayarları kullanılır.";
-        _lnkPrefsReset.Visible = has;
-    }
-
-    private void FillTrays(string? select)
-    {
-        var printer = _printer.SelectedItem as string;
-        _tray.Items.Clear();
-        _tray.Items.Add(AutoTrayItem);
-        foreach (var s in PrintRouter.PaperSources(printer == DefaultPrinterItem ? null : printer)) _tray.Items.Add(s);
-        _tray.SelectedItem = select is not null && _tray.Items.Contains(select) ? select : AutoTrayItem;
     }
 
     private static NumericUpDown MmBox() => new()
@@ -324,16 +270,7 @@ public sealed class SettingsForm : Form
 
         _province.SelectedItem = _province.Items.Contains(_cfg.Online.Province) ? _cfg.Online.Province : NoProvinceItem;
         _tsfSite.Text = TsfSites.SiteFor(_province.SelectedItem as string, _cfg.TsfSites) ?? "";
-        _printer.Items.Clear();
-        _printer.Items.Add(DefaultPrinterItem);
-        foreach (var p in PrintRouter.InstalledPrinters()) _printer.Items.Add(p);
-        var pc = _cfg.Printing;
-        _printer.SelectedItem = pc.PrinterName is { } pn && _printer.Items.Contains(pn) ? pn : DefaultPrinterItem;
-        FillTrays(pc.PaperSource);
-        _copies.Value = Math.Clamp(pc.Copies, 1, 20);
-        _silent.Checked = pc.Silent;
-        foreach (var (k, v) in pc.DevModes) _devModes[k] = v;
-        UpdatePrefsLabel();
+        _printerPanel.LoadFrom(_cfg.Printing);
         FillSystemCombos();
     }
 
@@ -359,12 +296,7 @@ public sealed class SettingsForm : Form
                 else _cfg.TsfSites[prov] = url;
             }
         }
-        var pc = _cfg.Printing;
-        pc.PrinterName = _printer.SelectedItem is string p && p != DefaultPrinterItem ? p : null;
-        pc.PaperSource = _tray.SelectedItem is string t && t != AutoTrayItem ? t : null;
-        pc.Copies = (int)_copies.Value;
-        pc.Silent = _silent.Checked;
-        pc.DevModes = new Dictionary<string, string>(_devModes, StringComparer.OrdinalIgnoreCase);
+        _printerPanel.SaveTo(_cfg.Printing);
         foreach (var (key, cbo) in _systemTemplate)
         {
             if (cbo.SelectedItem is string name && name != ActiveTemplateItem) _cfg.TemplateBySystem[key] = name;

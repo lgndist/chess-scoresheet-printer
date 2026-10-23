@@ -46,6 +46,12 @@ public sealed class AppConfig
     /// <summary>TSF il sitesi adresini değiştirmek için (il → "https://…tsf.org.tr"); boşsa gömülü liste.</summary>
     public Dictionary<string, string> TsfSites { get; set; } = new();
 
+    /// <summary>TSF kayıt listesinden turnuva başında alınan sporcu/il listesi (etkinlik tnr → kayıt).</summary>
+    public Dictionary<string, EventRegistration> Registrations { get; set; } = new();
+
+    /// <summary>Önceki turnuvalarda öğrenilen sporcu illeri (katlanmış ad → il); kayıt listesi yoksa önerilir.</summary>
+    public Dictionary<string, string> PlayerProvinces { get; set; } = new();
+
     /// <summary>Kategori masa kartları: afiş/logo ve kategori renkleri (kategori tnr → "#RRGGBB").</summary>
     public CardConfig Cards { get; set; } = new();
 
@@ -258,6 +264,9 @@ public sealed class LayoutConfig
 
     public const int DefaultCopies = 4;
 
+    /// <summary>Ana penceredeki işlem kaydı açık mı (varsayılan kapalı: yalnız başlık satırı görünür).</summary>
+    public bool LogExpanded { get; set; }
+
     /// <summary>Sayfa boyutu: "A4" veya "A5". Çıktılar genelde A5.</summary>
     public string PageSize { get; set; } = "A5";
 
@@ -281,8 +290,11 @@ public sealed class BadgeConfig
     /// <summary>Kartın sol üstündeki resmi logo (boş = gömülü TSF/uygulama logosu yok, yalnız yazı).</summary>
     public string? LogoPath { get; set; }
 
-    /// <summary>Kart ölçüsü: "85x54" (kredi kartı) ya da "90x60" milimetre.</summary>
+    /// <summary>Kart ölçüsü: "85x54" (kredi kartı), "90x60" ya da büyük dikey "95x135" milimetre.</summary>
     public string Size { get; set; } = "85x54";
+
+    /// <summary>Görev sade yazılsın: başhakem "Başhakem", diğer herkes "Hakem" (kapalıysa tablodaki görev aynen).</summary>
+    public bool SimpleRoles { get; set; } = true;
 
     /// <summary>Kesim çizgileri ve köşe işaretleri basılsın mı.</summary>
     public bool CropMarks { get; set; } = true;

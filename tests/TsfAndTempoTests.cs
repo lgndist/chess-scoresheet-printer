@@ -304,4 +304,15 @@ public class TsfAndTempoTests
         Assert.Null(Arbiters.GradeFromTitle(null));
         Assert.Equal(Arbiters.Grades.Length, Arbiters.Grades.Select(Arbiters.ColorFor).Distinct().Count()); // her derece ayrı renk
     }
+
+    [Theory]
+    [InlineData("Başhakem", true, "Başhakem")]
+    [InlineData("BAŞHAKEM", true, "Başhakem")]
+    [InlineData("Başhakem Yardımcısı", true, "Hakem")]
+    [InlineData("Turnuva Direktörü", true, "Hakem")]
+    [InlineData("Saha Hakemi", true, "Hakem")]
+    [InlineData(null, true, "Hakem")]
+    [InlineData("Başhakem Yardımcısı", false, "Başhakem Yardımcısı")]
+    public void Arbiters_PrintedRole_SimpleOrDetailed(string? role, bool simple, string expected)
+        => Assert.Equal(expected, Arbiters.PrintedRole(role, simple));
 }

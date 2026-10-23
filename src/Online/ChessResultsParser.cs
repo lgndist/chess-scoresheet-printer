@@ -56,7 +56,49 @@ public static class ChessResultsParser
             maxRound = Math.Max(declared, currentRound);
         var categories = ParseCategories(doc, tnr, name);
 
-        return new EventInfo(tnr, name, dates, maxRound, currentRound, categories, system);
+        return new EventInfo(tnr, name, dates, maxRound, currentRound, categories, system, RankedRound(doc));
+    }
+
+    private static readonly Regex RankedTitle = new(
+        @"(\d+)\.\s*Turdan\s+Sonra|after\s+Round\s+(\d+)|nach\s+(?:der\s+)?(\d+)\.\s*Runde", RegexOptions.IgnoreCase);
+
+    /// <summary>Sayfa başlığındaki "5. Turdan Sonra Sıralama" → 5 (sonucu girilmiş son tur); yoksa 0.</summary>
+    private static int RankedRound(IDocument doc)
+    {
+        foreach (var h in doc.QuerySelectorAll("h2, h3"))
+        {
+            var m = RankedTitle.Match(Clean(h.TextContent));
+            if (m.Success) return int.Parse(m.Groups.Cast<Group>().Skip(1).First(g => g.Success).Value);
+        }
+        return 0;
+    }
+
+    /// <summary>
+    /// Tur sonrası sıralama (art=1&amp;rd=N): başlık ("4. Turdan Sonra Sıralama") ve tablo. Panoya
+    /// basılırken gereksiz sütunlar (bayrak/boş başlık, FIDE ID, FED) ve hep sıfır olan eşitlik
+    /// bozma sütunları atılır.
+    /// </summary>
+    public static ListTable? ParseStandings(string html)
+    {
+        var doc = Parser.ParseDocument(html);
+        var table = doc.QuerySelector("table.CRs1");
+        if (table is null) return null;
+        var rows = DirectRows(table).ToList();
+        int h = rows.FindIndex(r => r.Children.Any(c => c.TagName == "TH") || (r.ClassName ?? "").StartsWith("CRg"));
+        if (h < 0) return null;
+        var head = RowCells(rows[h]);
+        var body = rows.Skip(h + 1).Select(RowCells).Where(c => c.Count == head.Count && c.Any(x => x.Length > 0)).ToList();
+
+        var drop = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "FED", "FIDE ID", "FIDE-ID", "ID", "Typ", "Tip", "Grup", "sex", "K" };
+        // Başlıksız sütun: bayrak (metinsiz) atılır, unvan (FM, WIM…) doluysa kalır.
+        var keep = Enumerable.Range(0, head.Count).Where(i =>
+            (head[i].Length > 0 || body.Any(r => r[i].Length > 0)) && !drop.Contains(head[i]) &&
+            !(Regex.IsMatch(head[i], @"^(EB|TB|BH|SB)\d*$", RegexOptions.IgnoreCase) && body.All(r => r[i] is "0" or "" or "0,0"))).ToList();
+
+        var title = doc.QuerySelectorAll("h2").Select(x => Clean(x.TextContent)).FirstOrDefault(t => RankedTitle.IsMatch(t))
+                    ?? "Sıralama";
+        return new ListTable(title, keep.Select(i => head[i]).ToList(),
+            body.Select(r => (IReadOnlyList<string>)keep.Select(i => r[i]).ToList()).ToList());
     }
 
     /// <summary>"Turnuva Tipi" metnini sisteme çevirir (Türkçe/İngilizce/Almanca sayfa metinleri).</summary>
@@ -311,6 +353,36 @@ public static class ChessResultsParser
                 result.TryAdd(label, value);
         }
         return result;
+    }
+
+    /// <summary>Başlangıç sıralaması (art=0): sporcu adı ("SOYAD, AD") ve puanı.</summary>
+    public static List<Player> ParseStartingList(string html)
+    {
+        var doc = Parser.ParseDocument(html);
+        var list = new List<Player>();
+        foreach (var table in doc.QuerySelectorAll("table.CRs1"))
+        {
+            var rows = table.QuerySelectorAll("tr").ToList();
+            int h = rows.FindIndex(r => r.Children.Any(c => c.TagName == "TH") ||
+                                        RowCells(r).Any(c => c is "İsim" or "Name" or "Ad"));
+            if (h < 0) continue;
+            var head = RowCells(rows[h]);
+            int iName = head.FindIndex(c => c is "İsim" or "Name" or "Ad" or "Oyuncu");
+            int iNo = head.FindIndex(c => c is "No." or "No" or "Sno");
+            int iRtg = head.FindIndex(c => Regex.IsMatch(c, @"^(Rtg|ELO|Elo|UKD|Rating)", RegexOptions.IgnoreCase));
+            if (iName < 0) continue;
+            foreach (var tr in rows.Skip(h + 1))
+            {
+                var c = RowCells(tr);
+                if (c.Count <= iName || string.IsNullOrWhiteSpace(c[iName])) continue;
+                list.Add(new Player(
+                    StartNo: iNo >= 0 && iNo < c.Count && int.TryParse(c[iNo], out var no) ? no : null,
+                    Name: c[iName],
+                    Rating: iRtg >= 0 && iRtg < c.Count ? ParseRating(c[iRtg]) : null));
+            }
+            if (list.Count > 0) break;
+        }
+        return list;
     }
 
     /// <summary>Tur tarihleri sayfası (art=14): tur no, tarih ("2026/10/03"), saat ("10.00").</summary>

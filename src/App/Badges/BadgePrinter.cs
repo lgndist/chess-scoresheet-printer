@@ -38,7 +38,12 @@ public sealed class BadgePrinter
         _eventName = eventName;
         _cropMarks = cropMarks;
         _font = font ?? CardFonts.Default;
-        (CardW, CardH) = size == "90x60" ? (90 * Mm, 60 * Mm) : (85 * Mm, 54 * Mm);
+        (CardW, CardH) = size switch
+        {
+            "90x60" => (90 * Mm, 60 * Mm),
+            "95x135" => (95 * Mm, 135 * Mm), // büyük dikey: A4'e 2×2, A6 kılıfa uyar; kenarda kesim işaretine yer kalır
+            _ => (85 * Mm, 54 * Mm)
+        };
         Cols = 2;
         Rows = (int)((PageH - 2 * 12 * Mm) / CardH);   // en az 12 mm üst/alt pay (yazıcı kenarı + kesim işareti)
     }
@@ -151,6 +156,7 @@ public sealed class BadgePrinter
     /// <summary>Tek kart (punto). Ölçüler kart boyutuna oranlıdır; 85×54 ve 90×60 aynı düzeni kullanır.</summary>
     public static void DrawCard(Graphics g, RectangleF r, BadgeSpec b, Image? logo, Image? photo, string eventName, string? font)
     {
+        if (r.Height > r.Width) { DrawPortrait(g, r, b, logo, photo, eventName, font); return; }
         float u = r.Height / 54f;                     // 1 "mm" (54 mm yüksekliğe göre)
         float m = 3 * u;
         using (var white = new SolidBrush(Color.White)) g.FillRectangle(white, r);
@@ -197,6 +203,65 @@ public sealed class BadgePrinter
         using (var sb = new SolidBrush(b.GradeColor)) g.FillRectangle(sb, strip);
         var stripText = RectangleF.Inflate(strip, -m, -1.5f * u);
         CardLayout.DrawLines(g, CardLayout.Fit(ReportUpper(b.Grade), stripText, 10, font, 5, 1), stripText, CardLayout.TextColorFor(b.GradeColor), font);
+    }
+
+    /// <summary>
+    /// Büyük dikey kart (95×135 mm): üstte logo ve turnuva adı, ortada büyük vesikalık, altında
+    /// ad soyad ve görev, en altta dereceye göre renkli şerit. Ölçüler 95 mm genişliğe oranlıdır.
+    /// </summary>
+    private static void DrawPortrait(Graphics g, RectangleF r, BadgeSpec b, Image? logo, Image? photo, string eventName, string? font)
+    {
+        float u = r.Width / 95f, m = 5 * u;
+        using (var white = new SolidBrush(Color.White)) g.FillRectangle(white, r);
+        float y = r.Y + m;
+
+        // Logo (ortalı) + turnuva adı
+        if (logo is not null)
+        {
+            var logoBox = new RectangleF(r.X + m, y, r.Width - 2 * m, 20 * u);
+            g.DrawImage(logo, CardLayout.FitImage(new SizeF(logo.Width, logo.Height), logoBox));
+            y = logoBox.Bottom + 2 * u;
+        }
+        var titleBox = new RectangleF(r.X + m, y, r.Width - 2 * m, logo is null ? 24 * u : 14 * u);
+        CardLayout.DrawLines(g, CardLayout.Fit(eventName.ToUpper(new System.Globalization.CultureInfo("tr-TR")), titleBox, 13, font, 6, 3),
+            titleBox, Color.FromArgb(55, 55, 55), font);
+        y = titleBox.Bottom + 3 * u;
+
+        // Vesikalık (3:4), ortalı; ince derece renginde çerçeve
+        float ph = 50 * u, pw = ph * 0.75f;
+        var photoBox = new RectangleF(r.X + (r.Width - pw) / 2, y, pw, ph);
+        if (photo is not null)
+        {
+            var state = g.Save();
+            g.SetClip(photoBox);
+            float s = Math.Max(photoBox.Width / photo.Width, photoBox.Height / photo.Height);
+            float iw = photo.Width * s, ih = photo.Height * s;
+            g.DrawImage(photo, photoBox.X + (photoBox.Width - iw) / 2, photoBox.Y + (photoBox.Height - ih) / 2, iw, ih);
+            g.Restore(state);
+            using var frame = new Pen(b.GradeColor, 1.2f);
+            g.DrawRectangle(frame, photoBox.X, photoBox.Y, photoBox.Width, photoBox.Height);
+        }
+        else
+        {
+            using var dash = new Pen(Color.FromArgb(160, 160, 160), 0.8f) { DashStyle = DashStyle.Dash };
+            g.DrawRectangle(dash, photoBox.X, photoBox.Y, photoBox.Width, photoBox.Height);
+            using var hint = new Font("Segoe UI", 9f, GraphicsUnit.Point);
+            using var hb = new SolidBrush(Color.FromArgb(150, 150, 150));
+            using var fmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+            g.DrawString("FOTOĞRAF", hint, hb, photoBox, fmt);
+        }
+        y = photoBox.Bottom + 3 * u;
+
+        // Ad soyad (en çok 2 satır) ve görev
+        var strip = RectangleF.FromLTRB(r.X, r.Bottom - 14 * u, r.Right, r.Bottom);
+        var roleBox = new RectangleF(r.X + m, strip.Top - 3 * u - 9 * u, r.Width - 2 * m, 9 * u);
+        var nameBox = RectangleF.FromLTRB(r.X + m, y, r.Right - m, roleBox.Top - 1 * u);
+        CardLayout.DrawLines(g, CardLayout.Fit(b.Name, nameBox, 22, font, 9, 2), nameBox, Color.FromArgb(20, 20, 20), font);
+        CardLayout.DrawLines(g, CardLayout.Fit(ReportUpper(b.Role), roleBox, 16, font, 8, 1), roleBox, b.GradeColor, font);
+
+        using (var sb = new SolidBrush(b.GradeColor)) g.FillRectangle(sb, strip);
+        var stripText = RectangleF.Inflate(strip, -m, -2.5f * u);
+        CardLayout.DrawLines(g, CardLayout.Fit(ReportUpper(b.Grade), stripText, 16, font, 8, 1), stripText, CardLayout.TextColorFor(b.GradeColor), font);
     }
 
     private static string ReportUpper(string s) => (s ?? "").ToUpper(new System.Globalization.CultureInfo("tr-TR"));

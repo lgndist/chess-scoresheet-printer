@@ -1,5 +1,6 @@
 using NotasyonOtomasyonu.App.Badges;
 using NotasyonOtomasyonu.App.Cards;
+using NotasyonOtomasyonu.App.Registration;
 using NotasyonOtomasyonu.App.Reports;
 using NotasyonOtomasyonu.Core;
 using NotasyonOtomasyonu.Online;
@@ -12,12 +13,15 @@ public partial class MainForm
     private Button? _btnReport;
     private Button? _btnCards;
     private Button? _btnBadges;
+    private Button? _btnRegistration;
 
     private void InitToolButtons()
     {
         _btnReport = HeaderButton("📄 Yönerge / Tutanak", "Turnuva yönergesi, raporu ya da teknik toplantı tutanağını chess-results ve TSF il sitesindeki yönergeyle doldurup PDF olarak kaydet.");
         _btnCards = HeaderButton("🏷 Masa Kartları", "Kategori masa kartlarını (A4 yatay, kategori renginde) bas.");
         _btnBadges = HeaderButton("🪪 Yaka Kartları", "Hakem yaka kartlarını (85×54 / 90×60 mm, A4'e dizili, kesim işaretli) bas.");
+        _btnRegistration = HeaderButton("📋 Kayıt / İl", "TSF il sitesindeki turnuva kayıt listesini (turnuva başında bir kez) alıp sporcuların illerini bul; notasyondaki İl kutusuna basılır.");
+        _btnRegistration.Click += (_, _) => OpenRegistration();
         _btnReport.Click += (_, _) => OpenReport();
         _btnCards.Click += (_, _) => OpenCards();
         _btnBadges.Click += (_, _) => OpenBadges();
@@ -48,7 +52,7 @@ public partial class MainForm
     /// <summary>Ayarlar'ın soluna araç butonlarını dizer (PositionHeader'dan çağrılır).</summary>
     private int PositionToolButtons(int right)
     {
-        foreach (var b in new[] { _btnBadges, _btnCards, _btnReport })
+        foreach (var b in new[] { _btnBadges, _btnCards, _btnReport, _btnRegistration })
         {
             if (b is null) continue;
             b.Top = (pnlHeader.Height - b.Height) / 2;
@@ -83,7 +87,7 @@ public partial class MainForm
     private async Task<(int Max, int Current, TournamentSystem System)> RoundsOfAsync(int catTnr)
     {
         if (_roundCache.TryGetValue(catTnr, out var r)) return r;
-        var info = await _online.GetEventAsync(catTnr);
+        var info = await _online.GetEventAsync(catTnr); _ranked[catTnr] = info.RankedRound;
         r = (info.MaxRound, info.CurrentRound, info.System);
         _roundCache[catTnr] = r;
         return r;
@@ -110,6 +114,22 @@ public partial class MainForm
         f.ShowDialog(this);
     }
 
+    private void OpenRegistration()
+    {
+        var cats = ToolCategories();
+        if (cats is null) return;
+        UpdateConfigFromUi();
+        var ctx = new RegistrationContext(_online, _eventTnr!.Value, CurrentEventName(), cats, CurrentProvince(),
+            _config, () => _config.Save(_configPath));
+        using var f = new RegistrationForm(ctx) { Icon = Icon };
+        f.ShowDialog(this);
+        ShowPairings(rbOnline.Checked ? _syncedTournament : _fileTournament); // listedeki İl sütunu güncellensin
+    }
+
+    /// <summary>Basılacak eşleştirmeye sporcuların illerini ekler (kayıt listesi / elle / öğrenilen).</summary>
+    private Tournament WithProvinces(Tournament t)
+        => ProvinceBook.Apply(t, _config, rbOnline.Checked ? _eventTnr : null, rbOnline.Checked ? CurrentEventName() : null);
+
     private void OpenCards()
     {
         var cats = ToolCategories();
@@ -131,6 +151,7 @@ public partial class MainForm
             ? $"Doğrudan yazdır açık: önizleme açılmadan “{Overlay.PrintRouter.TargetName}” yazıcısına gönderilir (Ctrl+P)."
             : "Önizleme açılır; oradan yazıcı seçip basılır (Ctrl+P).");
         UpdateSelectionSummary();
+        UpdatePrinterButton();
     }
 
     private void OpenBadges()

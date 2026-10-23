@@ -44,12 +44,45 @@ public static class OverlayLayout
             var inner = RectangleF.Inflate(rect, -Math.Min(TextInsetPt, rect.Width / 4f), 0);
 
             var value = Resolve(f, t, p);
-            var fit = TextFitter.Fit(value, inner.Width, inner.Height,
-                (float)f.FontSize, (float)f.MinFontSize, f.Bold, f.Overflow);
+            var fit = FitField(f, value, inner);
 
             list.Add(new PlacedText(inner, fit.Text, fit.FontPt, f.Bold, f.Align));
         }
         return list;
+    }
+
+    /// <summary>
+    /// Alanı kutuya sığdırır. Kişi adlarındaki baş harf kısaltması ("M. A. YILMAZ") turnuva adına ve
+    /// ile uygulanmaz: turnuva adında önce genel sözcükler ("Satranç", "Turnuvası") atılır; il
+    /// sığmazsa yaygın kısa adı ("AFYON", "K.MARAŞ") basılır. Hiçbiri sığmazsa "…" ile kısaltılır.
+    /// </summary>
+    public static FitResult FitField(OverlayField f, string value, RectangleF inner)
+    {
+        IEnumerable<string> candidates = f.Kind switch
+        {
+            FieldKind.TournamentName => TitleLadder(value),
+            FieldKind.WhiteProvince or FieldKind.BlackProvince => new[] { value, Provinces.ShortForm(value) },
+            _ => Array.Empty<string>()
+        };
+        var list = candidates.Where(c => !string.IsNullOrWhiteSpace(c)).Distinct().ToList();
+        if (list.Count == 0)
+            return TextFitter.Fit(value, inner.Width, inner.Height, (float)f.FontSize, (float)f.MinFontSize, f.Bold, f.Overflow);
+
+        foreach (var c in list)
+        {
+            var r = TextFitter.Fit(c, inner.Width, inner.Height, (float)f.FontSize, (float)f.MinFontSize, f.Bold, OverflowMode.Shrink);
+            if (TextFitter.MeasureWidth(r.Text, r.FontPt, f.Bold) <= inner.Width - 1.5f) return r;
+        }
+        return TextFitter.Fit(list[^1], inner.Width, inner.Height, (float)f.FontSize, (float)f.MinFontSize, f.Bold, OverflowMode.ShrinkThenEllipsis);
+    }
+
+    /// <summary>"Isparta 29 Ekim Cumhuriyet Bayramı Satranç Turnuvası" → "… Bayramı Turnuvası" → "… Bayramı".</summary>
+    private static IEnumerable<string> TitleLadder(string title)
+    {
+        yield return title;
+        var noChess = System.Text.RegularExpressions.Regex.Replace(title, @"\s+Satran[çc]\b", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+        yield return noChess;
+        yield return System.Text.RegularExpressions.Regex.Replace(noChess, @"\s+(Turnuvas[ıi]|Turnuva)$", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
     }
 
     /// <summary>Bir alanın bu eşleştirmedeki metin değeri.</summary>
@@ -74,6 +107,8 @@ public static class OverlayLayout
         FieldKind.DateDay => DatePart(t.Date, 0),
         FieldKind.DateMonth => DatePart(t.Date, 1),
         FieldKind.DateYear2 => DatePart(t.Date, 2),
+        FieldKind.WhiteProvince => p.White.Province ?? "", // MainForm.WithProvinces ile doldurulur
+        FieldKind.BlackProvince => p.IsBye ? "" : (p.Black?.Province ?? ""),
         _ => "" // Yer/zaman kontrolü/hakem: bilinçli olarak boş
     };
 
@@ -90,7 +125,7 @@ public static class OverlayLayout
         {
             0 => d.Day.ToString("00"),
             1 => d.Month.ToString("00"),
-            _ => (d.Year % 100).ToString("00")
+            _ => d.Year.ToString("0000") // her zaman 4 hane (2026)
         };
     }
 
@@ -105,8 +140,8 @@ public static class OverlayLayout
         // chess-results ile aynı "SOYAD, AD" biçimi
         var p = new Pairing(
             Board: 7,
-            White: new Player(12, "HACIMÜFTÜOĞLU, ABDURRAHMAN", "FM", 2345),
-            Black: new Player(3, "ÇETİNKAYA, AYŞE NUR", null, 2110),
+            White: new Player(12, "HACIMÜFTÜOĞLU, ABDURRAHMAN", "FM", 2345, Province: "AFYONKARAHİSAR"),
+            Black: new Player(3, "ÇETİNKAYA, AYŞE NUR", null, 2110, Province: "ISPARTA"),
             Category: "A",
             // Tasarımcıda takım alanlarının yeri görünsün diye örnek takım adları
             WhiteTeam: "ÖRNEK SATRANÇ SPOR KULÜBÜ",
@@ -138,7 +173,9 @@ public static class OverlayLayout
         FieldKind.BlackTeam => "Siyah takım",
         FieldKind.DateDay => "Tarih: gün",
         FieldKind.DateMonth => "Tarih: ay",
-        FieldKind.DateYear2 => "Tarih: yıl (son 2)",
+        FieldKind.DateYear2 => "Tarih: yıl (4 hane)",
+        FieldKind.WhiteProvince => "Beyaz il",
+        FieldKind.BlackProvince => "Siyah il",
         _ => k.ToString()
     };
 }

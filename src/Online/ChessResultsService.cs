@@ -145,6 +145,16 @@ public sealed class ChessResultsService : IDisposable
         => ChessResultsParser.ParseInfoTable(
             await _client.FetchAsync(ChessResultsClient.EventUrl(tnr).Replace("turdet=YES", "turdet=ALL"), ct).ConfigureAwait(false));
 
+    /// <summary>Kategorinin <paramref name="round"/>. turdan sonraki sıralaması (yoksa null).</summary>
+    public async Task<ListTable?> GetStandingsAsync(int tnr, int round, CancellationToken ct = default)
+        => ChessResultsParser.ParseStandings(
+            await _client.FetchAsync(ChessResultsClient.StandingsUrl(tnr, round), ct).ConfigureAwait(false));
+
+    /// <summary>Kategorinin sporcuları (başlangıç sıralaması).</summary>
+    public async Task<List<Player>> GetStartingListAsync(int tnr, CancellationToken ct = default)
+        => ChessResultsParser.ParseStartingList(
+            await _client.FetchAsync(ChessResultsClient.StartingListUrl(tnr), ct).ConfigureAwait(false));
+
     /// <summary>Tur tarih/saat programı (art=14).</summary>
     public async Task<List<(int Round, DateTime? Date, string Time)>> GetScheduleAsync(int tnr, CancellationToken ct = default)
         => ChessResultsParser.ParseSchedule(

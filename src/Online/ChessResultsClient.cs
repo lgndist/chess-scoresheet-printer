@@ -79,6 +79,14 @@ public sealed class ChessResultsClient : IDisposable
     public static string TeamBoardsUrl(int tnr, int round)
         => $"{BaseHost}/tnr{tnr}.aspx?lan=8&art=3&rd={round}&turdet=YES";
 
+    /// <summary>Bir turdan sonraki sıralama (art=1&amp;rd=N).</summary>
+    public static string StandingsUrl(int tnr, int round)
+        => $"{BaseHost}/tnr{tnr}.aspx?lan=8&art=1&rd={round}&turdet=YES";
+
+    /// <summary>Başlangıç sıralaması (art=0): sporcu listesi, eşleştirme yayımlanmadan da vardır.</summary>
+    public static string StartingListUrl(int tnr)
+        => $"{BaseHost}/tnr{tnr}.aspx?lan=8&art=0&turdet=YES";
+
     /// <summary>Tur tarihleri ve saatleri (art=14).</summary>
     public static string ScheduleUrl(int tnr)
         => $"{BaseHost}/tnr{tnr}.aspx?lan=8&art=14&turdet=YES";

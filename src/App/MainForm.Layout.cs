@@ -65,12 +65,27 @@ public partial class MainForm
                 above = grpQuick;
             }
 
+            // --- pano listeleri (eşleştirme · sonuç): hızlı erişimin altında, küçük ---
+            if (_grpLists is { Visible: true })
+            {
+                _grpLists.SetBounds(grpQuick.Left, above.Bottom + _gapInfoToQuick, grpQuick.Width, _grpLists.Height);
+                LayoutListGroup();
+                above = _grpLists;
+            }
+
             // --- durum + günlük ---
             lblStatus.Top = above.Bottom + _gapToStatus;
-            txtLog.Top = lblStatus.Bottom + _gapStatusToLog;
+            // İşlem kaydı: başlık bağlantısı hep görünür; kutu yalnız açıkken (kapalıyken sol sütun kısalır).
+            int logTop = lblStatus.Bottom + _gapStatusToLog;
+            if (_lnkLog is not null)
+            {
+                _lnkLog.Top = logTop;
+                logTop = _lnkLog.Bottom + 2;
+            }
+            txtLog.Top = logTop;
 
             // Sol sütun pencereye sığmıyorsa pencereyi (ekranın izin verdiği kadar) uzat.
-            int needed = txtLog.Top + _minLogHeight + 12;
+            int needed = txtLog.Visible ? txtLog.Top + _minLogHeight + 12 : logTop + 12;
             if (needed > ClientSize.Height && WindowState == FormWindowState.Normal)
             {
                 var screen = Screen.FromControl(this).WorkingArea;

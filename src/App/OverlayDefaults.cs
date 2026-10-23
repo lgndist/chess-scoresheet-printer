@@ -17,7 +17,7 @@ public static class OverlayDefaults
     private const string ResourceName = "NotasyonOtomasyonu.App.AnaOrnek.png";
 
     /// <summary>Bu sürümün şablon seti; config'teki değer küçükse eksik yerleşik şablonlar bir kez eklenir.</summary>
-    public const int CurrentTemplateSetVersion = 3;
+    public const int CurrentTemplateSetVersion = 5;
 
     /// <summary>
     /// Açılışta çağrılır. Kütüphane boşsa iki yerleşik şablonu ekler ("Ana Örnek 2" etkin).
@@ -51,6 +51,12 @@ public static class OverlayDefaults
         }
         if (cfg.TemplateSetVersion < 3 && cfg.Templates.All(t => t.Name != TsfName))
             cfg.Templates.Add(BuildTsf(bgPath));         // 3. seçenek; etkin şablonu değiştirmez
+        if (cfg.TemplateSetVersion < 5)
+            foreach (var t in cfg.Templates.Append(cfg.Overlay))
+                UseFullDate(t, bgPath);                  // TSF formu: gün/ay/yıl(2) parçaları yerine tam tarih
+        if (cfg.TemplateSetVersion < 4)
+            foreach (var t in cfg.Templates.Append(cfg.Overlay))
+                AddProvinceFields(t, bgPath);            // yerleşik şablonlara "İl / City" kutuları
         if (cfg.TemplateSetVersion < CurrentTemplateSetVersion)
             cfg.TemplateSetVersion = CurrentTemplateSetVersion;
 
@@ -62,6 +68,30 @@ public static class OverlayDefaults
                     (string.IsNullOrWhiteSpace(t.BackgroundImagePath) || !File.Exists(t.BackgroundImagePath)))
                     t.BackgroundImagePath = bgPath;
         }
+    }
+
+    /// <summary>
+    /// Yerleşik bir şablonda il alanları yoksa, o şablonun güncel yerleşimindeki il alanlarını ekler.
+    /// Kullanıcının kendi şablonlarına dokunmaz (tasarımcıdan "Beyaz il / Siyah il" eklenebilir).
+    /// </summary>
+    public static void AddProvinceFields(OverlayTemplate t, string? backgroundPath)
+    {
+        if (t.Fields.Any(f => f.Kind is FieldKind.WhiteProvince or FieldKind.BlackProvince)) return;
+        var fresh = BuildBuiltIn(t.Name ?? "", backgroundPath);
+        if (fresh is null) return;
+        t.Fields.AddRange(fresh.Fields.Where(f => f.Kind is FieldKind.WhiteProvince or FieldKind.BlackProvince));
+    }
+
+    /// <summary>
+    /// TSF formundaki üç parçalı tarihi (gün / ay / yılın son iki hanesi) tek tam tarih alanıyla
+    /// değiştirir: çıktıda yıl her zaman 4 hane ("03.10.2026"). Yalnız yerleşik TSF şablonu.
+    /// </summary>
+    public static void UseFullDate(OverlayTemplate t, string? backgroundPath)
+    {
+        if (t.Name != TsfName || !t.Fields.Any(f => f.Kind is FieldKind.DateDay or FieldKind.DateMonth or FieldKind.DateYear2)) return;
+        var date = BuildTsf(backgroundPath).Fields.First(f => f.Kind == FieldKind.Date);
+        t.Fields.RemoveAll(f => f.Kind is FieldKind.DateDay or FieldKind.DateMonth or FieldKind.DateYear2);
+        if (!t.Fields.Any(f => f.Kind == FieldKind.Date)) t.Fields.Add(date);
     }
 
     /// <summary>Gömülü Ana Örnek görselini exe yanındaki templates klasörüne çıkarır.</summary>
@@ -131,7 +161,7 @@ public static class OverlayDefaults
     /// Türkiye Satranç Federasyonu resmi notasyon formu (mavi başlıklı). Değerler, bu formun basılmış
     /// iki fotoğrafından ölçüldü: hamle tablosuna göre perspektif düzeltildi, basılı yazıların bilinen
     /// konumlarından kağıda eşlendi (hata ≈0,25 pt) ve her alan kendi kutusunun içine ORTALANDI.
-    /// Tarih, kağıttaki ". . . / . . . / 20 . . ." kılavuzuna üç parça yazılır (yılın yalnız son iki hanesi).
+    /// Tarih tek alanda tam yazılır ("03.10.2026", 4 haneli yıl); noktalı kılavuzun üstünde ortalı.
     /// Not: arka plan görseli (önizleme) bu formun değil Ana Örnek'in; kutular birkaç pt farklı görünebilir.
     /// </summary>
     private static List<OverlayField> TsfFields() => new()
@@ -146,10 +176,11 @@ public static class OverlayDefaults
         C(FieldKind.BlackName,      0.165095, 0.261425, 0.449754, 0.029095, 12, false),
         C(FieldKind.BlackRating,    0.681652, 0.260524, 0.124281, 0.028843, 12, false),
         C(FieldKind.BlackTeam,      0.165442, 0.292536, 0.448798, 0.028053, 9, false, OverflowMode.ShrinkThenEllipsis),
-        // Tarih: noktalı bölümlerin ortasına, rakam tabanı noktaların 1,5 pt üstünde
-        C(FieldKind.DateDay,        0.186833, 0.157208, 0.052440, 0.020159, 10, false, OverflowMode.ShrinkThenEllipsis),
-        C(FieldKind.DateMonth,      0.225682, 0.157208, 0.052440, 0.020159, 10, false, OverflowMode.ShrinkThenEllipsis),
-        C(FieldKind.DateYear2,      0.283850, 0.157208, 0.052440, 0.020159, 10, false, OverflowMode.ShrinkThenEllipsis),
+        // "İl / City" kutuları (Rating kutusunun altında)
+        C(FieldKind.WhiteProvince,  0.682681, 0.224875, 0.123867, 0.029168, 10, false, OverflowMode.ShrinkThenEllipsis),
+        C(FieldKind.BlackProvince,  0.681652, 0.292536, 0.124281, 0.028053, 10, false, OverflowMode.ShrinkThenEllipsis),
+        // Tarih: tek alanda tam ve 4 haneli yıl ("03.10.2026"), noktalı kılavuzun üstünde ortalı
+        C(FieldKind.Date,           0.154730, 0.157208, 0.184459, 0.020159, 10, false, OverflowMode.ShrinkThenEllipsis),
     };
 
     private static OverlayField C(FieldKind kind, double x, double y, double w, double h,
@@ -178,6 +209,9 @@ public static class OverlayDefaults
         // Takım turnuvası: "Kulüp / Club" kutularına takım adı (bireyselde boş kalır)
         F(FieldKind.WhiteTeam,      0.1880952, 0.2250000, 0.4190476, 0.0284281, 9, false, OverflowMode.ShrinkThenEllipsis),
         F(FieldKind.BlackTeam,      0.1952381, 0.2950000, 0.4142857, 0.0284281, 9, false, OverflowMode.ShrinkThenEllipsis),
+        // İl: hücrenin tamamı (sol çizgiden 0,8 mm içeride, Rating ile aynı sağ kenar), ortalı — A5 analizine göre
+        C(FieldKind.WhiteProvince,  0.6844595, 0.2250000, 0.1226834, 0.0284281, 10, false, OverflowMode.ShrinkThenEllipsis),
+        C(FieldKind.BlackProvince,  0.6844595, 0.2950000, 0.1226834, 0.0284281, 10, false, OverflowMode.ShrinkThenEllipsis),
     };
 
     /// <summary>v1.0/v1.1 yerleşimi (kullanıcının ilk onayladığı).</summary>
@@ -194,6 +228,8 @@ public static class OverlayDefaults
         F(FieldKind.BlackRating,    0.6785714, 0.2608696, 0.1309524, 0.0317726, 11, false),
         F(FieldKind.WhiteTeam,      0.1500000, 0.2250000, 0.4571429, 0.0284281, 9, false, OverflowMode.ShrinkThenEllipsis),
         F(FieldKind.BlackTeam,      0.1500000, 0.2950000, 0.4595238, 0.0284281, 9, false, OverflowMode.ShrinkThenEllipsis),
+        F(FieldKind.WhiteProvince,  0.6809524, 0.2250000, 0.1285714, 0.0284281, 10, false, OverflowMode.ShrinkThenEllipsis),
+        F(FieldKind.BlackProvince,  0.6785714, 0.2950000, 0.1309524, 0.0284281, 10, false, OverflowMode.ShrinkThenEllipsis),
     };
 
     private static OverlayField F(FieldKind kind, double x, double y, double w, double h,

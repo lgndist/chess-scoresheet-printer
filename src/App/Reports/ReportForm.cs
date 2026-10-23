@@ -30,6 +30,7 @@ public sealed class ReportForm : Form
 {
     public const string BuiltInResource = "NotasyonOtomasyonu.App.turnuva_yonergesi_sablon.docx";
     public const string TutanakResource = "NotasyonOtomasyonu.App.teknik_toplanti_tutanagi_sablon.docx";
+    public const string SonRaporResource = "NotasyonOtomasyonu.App.turnuva_sonu_raporu_sablon.docx";
 
     private static readonly Color Green = Color.FromArgb(118, 150, 86);
     private static readonly Color GreenDark = Color.FromArgb(95, 122, 70);
@@ -51,6 +52,7 @@ public sealed class ReportForm : Form
     private bool _yonergeSame;
 
     private ReportDraft? _draft;
+    private EndReportData? _endReport;   // turnuva sonu raporu: final sıralamalarından (bir kez çekilir)
     private byte[]? _templateBytes;
     private bool _busy, _filling;
 
@@ -84,8 +86,9 @@ public sealed class ReportForm : Form
 
     private readonly Button _btnNext = new() { Text = "▶ Sonraki eksik", AutoSize = true, Height = 40 };
     private readonly Button _btnDocx = new() { Text = "Word (.docx) kaydet", AutoSize = true, Height = 40 };
-    private readonly Button _btnPrint = new() { Text = PrintRouter.IsSilent ? "🖨 Yazdır (doğrudan)" : "👁 Önizle ve Yazdır", Width = 190, Height = 40 };
-    private readonly Button _btnPdf = new() { Text = "📄 PDF Olarak Kaydet", Width = 220, Height = 40, BackColor = Green, ForeColor = Color.White };
+    private readonly Button _btnPrint = new() { Text = PrintRouter.IsSilent ? "🖨 Yazdır (doğrudan)" : "👁 Önizle ve Yazdır", Width = 170, Height = 40 };
+    private readonly Button _btnPdf = new() { Text = "📄 PDF Olarak Kaydet", Width = 200, Height = 40, BackColor = Green, ForeColor = Color.White };
+    private readonly Button _btnEdit = new() { Text = "✏ Önizle ve Düzenle", Width = 180, Height = 40 };
 
     public ReportForm(ReportContext ctx)
     {
@@ -121,6 +124,7 @@ public sealed class ReportForm : Form
         _gridProgram.UserDeletedRow += (_, _) => { PullGrids(); RunChecks(); };
         _btnPdf.Click += async (_, _) => await SavePdfAsync();
         _btnPrint.Click += async (_, _) => await PreviewAsync();
+        _btnEdit.Click += (_, _) => OpenEditor();
         _btnDocx.Click += (_, _) => SaveDocx();
         Shown += async (_, _) =>
         {
@@ -197,11 +201,12 @@ public sealed class ReportForm : Form
         var left = new FlowLayoutPanel { Dock = DockStyle.Left, AutoSize = true, WrapContents = false };
         left.Controls.AddRange(new Control[] { _btnNext, _btnDocx });
         var right = new FlowLayoutPanel { Dock = DockStyle.Right, AutoSize = true, WrapContents = false };
-        right.Controls.AddRange(new Control[] { _btnPrint, _btnPdf });
+        right.Controls.AddRange(new Control[] { _btnEdit, _btnPrint, _btnPdf });
         bottom.Controls.Add(left);
         bottom.Controls.Add(right);
 
-        foreach (var b in new[] { _btnUpload, _btnRemove, _btnYonRefresh, _btnYonOpen, _btnYonUse, _btnTempo, _btnNext, _btnDocx, _btnPrint, _btnPdf, _btnSuggest, _btnSuggest2 }) Style(b);
+        foreach (var b in new[] { _btnUpload, _btnRemove, _btnYonRefresh, _btnYonOpen, _btnYonUse, _btnTempo, _btnNext, _btnDocx, _btnEdit, _btnPrint, _btnPdf, _btnSuggest, _btnSuggest2 }) Style(b);
+        _btnEdit.Font = new Font("Segoe UI", 10f, FontStyle.Bold);
         _btnPdf.Font = new Font("Segoe UI", 11f, FontStyle.Bold);
 
         _gridFields.Columns.Add(new DataGridViewTextBoxColumn { Name = "Durum", HeaderText = "", Width = 30, ReadOnly = true });
@@ -292,6 +297,7 @@ public sealed class ReportForm : Form
         _cboTemplate.Items.Clear();
         _cboTemplate.Items.Add(new TemplateItem("Turnuva Yönergesi (hazır şablon)", null, BuiltInResource));
         _cboTemplate.Items.Add(new TemplateItem("Teknik Toplantı Tutanağı (hazır şablon)", null, TutanakResource));
+        _cboTemplate.Items.Add(new TemplateItem("Turnuva Sonu Raporu (hazır şablon)", null, SonRaporResource));
         foreach (var name in _ctx.Config.ReportTemplates.ToList())
         {
             var path = Path.Combine(_reportsDir, name);
@@ -375,7 +381,7 @@ public sealed class ReportForm : Form
         using var dlg = new SaveFileDialog
         {
             Filter = "Word belgesi (*.docx)|*.docx",
-            FileName = res == TutanakResource ? "teknik_toplanti_tutanagi_sablon.docx" : "turnuva_yonergesi_sablon.docx"
+            FileName = res == TutanakResource ? "teknik_toplanti_tutanagi_sablon.docx" : res == SonRaporResource ? "turnuva_sonu_raporu_sablon.docx" : "turnuva_yonergesi_sablon.docx"
         };
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
         File.WriteAllBytes(dlg.FileName, BuiltInTemplate(res));
@@ -511,6 +517,7 @@ public sealed class ReportForm : Form
             var tpl = SelectedTemplate;
             _btnRemove.Enabled = tpl.Path is not null;
             _templateBytes = tpl.Path is null ? BuiltInTemplate(tpl.Resource!) : await File.ReadAllBytesAsync(tpl.Path);
+            if (_endReport is null && NeedsEndReport(DocxTemplate.Analyze(_templateBytes))) await LoadEndReportAsync();
         }
         catch (Exception ex)
         {
@@ -522,6 +529,36 @@ public sealed class ReportForm : Form
             SetEnabled(true);
         }
         RebuildDraft();
+    }
+
+    /// <summary>Şablon turnuva sonu tablolarını ya da sayılarını istiyor mu (katılım, il, derece, sıralama).</summary>
+    private static bool NeedsEndReport(TemplateAnalysis a)
+        => a.Lists.Any(l => l is "katilim" or "il" or "derece" or "siralama")
+           || a.Fields.Any(f => f is "SPORCU_SAYISI" or "IL_SAYISI");
+
+    /// <summary>
+    /// Her kategorinin final sıralamasını (sonucu girilmiş son turdan sonra) çeker; illeri TSF kayıt
+    /// listesiyle eşleştirip katılım, il dağılımı, dereceye girenler ve sıralama tablolarını kurar.
+    /// </summary>
+    private async Task LoadEndReportAsync()
+    {
+        var list = new List<CategoryStandings>();
+        foreach (var (cat, max, sys) in _cats)
+        {
+            _lblStatus.Text = $"Final sıralaması alınıyor: {cat.Name}…";
+            int ranked = 0;
+            ListTable? st = null;
+            try
+            {
+                ranked = (await _ctx.Service.GetEventAsync(cat.Tnr)).RankedRound;
+                if (ranked > 0) st = await _ctx.Service.GetStandingsAsync(cat.Tnr, ranked);
+            }
+            catch { /* bu kategori boş kalır, kullanıcı tablodan düzeltebilir */ }
+            list.Add(new CategoryStandings(cat.Name, st, ranked, max, sys.IsTeam()));
+        }
+        var roster = list.Where(c => c.Standings is not null && !c.IsTeam).SelectMany(c => EndReport.Players(c.Standings!, c.Category));
+        var provinceOf = Registration.ProvinceBook.Resolver(_ctx.Config, _ctx.EventTnr, roster, _ctx.EventName);
+        _endReport = EndReport.Build(list, provinceOf, DateTime.Today);
     }
 
     /// <summary>Ağa çıkmadan taslağı yeniden kurar (şablon/yönerge değişince); elle girilenler korunur.</summary>
@@ -540,7 +577,8 @@ public sealed class ReportForm : Form
             Remembered = _ctx.Config.ReportAnswers,
             EventMemory = _ctx.Config.ReportEventValues.GetValueOrDefault(_ctx.EventTnr.ToString()),
             Yonerge = _yonerge,
-            YonergeSameEvent = _yonergeSame
+            YonergeSameEvent = _yonergeSame,
+            EndReport = _endReport
         });
         foreach (var f in _draft.Fields)
             if (manual.TryGetValue(f.Key, out var v))
@@ -862,12 +900,12 @@ public sealed class ReportForm : Form
 
     // ================= Çıktı =================
     /// <summary>Doldurulmuş belgeyi üretir. null = kullanıcı eksikleri doldurmak istedi.</summary>
-    private byte[]? BuildDocument()
+    private byte[]? BuildDocument(bool askMissing = true)
     {
         if (_draft is null || _templateBytes is null) return null;
         PullGrids();
         var missing = _draft.Fields.Where(f => !f.Optional && string.IsNullOrWhiteSpace(f.Value)).ToList();
-        if (missing.Count > 0)
+        if (askMissing && missing.Count > 0)
         {
             var ans = MessageBox.Show(this,
                 $"{missing.Count} bilgi boş: {string.Join(", ", missing.Take(4).Select(m => m.Label))}{(missing.Count > 4 ? "…" : "")}\n\n" +
@@ -890,7 +928,7 @@ public sealed class ReportForm : Form
         if (string.IsNullOrWhiteSpace(name)) name = EventGrouping.BaseName(_ctx.EventName);
         var slug = Slug(name);
         var t = SelectedTemplate;
-        var kind = t.Resource == BuiltInResource ? "yonerge" : t.Resource == TutanakResource ? "teknik_toplanti_tutanagi" : Slug(t.Label);
+        var kind = t.Resource == BuiltInResource ? "yonerge" : t.Resource == TutanakResource ? "teknik_toplanti_tutanagi" : t.Resource == SonRaporResource ? "turnuva_sonu_raporu" : Slug(t.Label);
         return $"{(slug.Length == 0 ? "turnuva" : slug)}_{kind}.{ext}";
     }
 
@@ -990,6 +1028,196 @@ public sealed class ReportForm : Form
         }
     }
 
+    // ================= Önizle ve Düzenle =================
+    /// <summary>
+    /// Belgeyi Word görünümünde açar; alanlar sayfa üzerinde tıklanıp yazılarak düzenlenir (sabit metin
+    /// kilitli). Değişiklikler bu penceredeki tabloya anında yansır; yazdırma/PDF oradan da yapılabilir.
+    /// </summary>
+    private void OpenEditor()
+    {
+        if (_draft is null || _templateBytes is null) return;
+        if (!WordExport.IsAvailable)
+        {
+            MessageBox.Show(this, "Önizle ve Düzenle için Microsoft Word gerekiyor; bu bilgisayarda bulunamadı.\n\n" +
+                                  "Alanları tablodan doldurup \"Word (.docx) kaydet\" ile belgeyi alabilirsiniz.",
+                            "Önizle ve Düzenle", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        PullGrids();
+        bool edited = false;
+        var ctx = new ReportEditorContext(
+            SelectedTemplate.Label,
+            () => EditorTargets(() => edited = true),
+            RenderForEditorAsync,
+            PrintFromEditorAsync,
+            SavePdfFromEditorAsync,
+            SaveDocxFromEditor);
+        using (var editor = new ReportEditorForm(ctx) { Icon = Icon })
+            editor.ShowDialog(this);
+        if (edited) RememberAnswers(); // elle yazılanlar sonraki rapor/tutanak için hatırlansın
+    }
+
+    private static readonly Dictionary<string, string> ListTitles = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["kategori"] = "Kategori", ["program"] = "Program", ["katilim"] = "Katılım", ["il"] = "İl dağılımı",
+        ["derece"] = "Dereceye giren", ["siralama"] = "Sıralama"
+    };
+
+    private static readonly Dictionary<string, string> ColumnTitles = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["kategori.adi"] = "Kategori adı", ["kategori.kriteri"] = "Kriter", ["program.tarih"] = "Tarih", ["program.saat"] = "Saat",
+        ["program.etkinlik"] = "Program", ["il.adi"] = "İl", ["il.sayi"] = "Sporcu sayısı", ["sporcu"] = "Sporcu sayısı",
+        ["tur"] = "Oynanan tur", ["kategori"] = "Kategori", ["derece"] = "Derece", ["sira"] = "Sıra", ["ad"] = "Ad soyad",
+        ["il"] = "İl", ["rtg"] = "Rating", ["puan"] = "Puan"
+    };
+
+    private static string ColumnTitle(string list, string col)
+        => ColumnTitles.TryGetValue(list + "." + col, out var t) || ColumnTitles.TryGetValue(col, out t) ? t : col;
+
+    private static EditTarget Cell(string list, int row, string col, Func<string> get, Action<string> set) => new()
+    {
+        Key = $"{list}[{row}].{col}",
+        Label = $"{(ListTitles.TryGetValue(list, out var lt) ? lt : list)} {row + 1} · {ColumnTitle(list, col)}",
+        Placeholder = ColumnTitle(list, col),
+        Optional = true,
+        Get = get,
+        Set = set
+    };
+
+    /// <summary>
+    /// Sayfada düzenlenebilecek her şey: tekil alanlar (alan tablosu), kategori ve program hücreleri
+    /// (sekmelerdeki tablolar) ve turnuva sonu tabloları. Anahtarlar belgedeki işaretlerle aynıdır
+    /// ("program[2].saat"). Program başına eklenen açılış kalemlerinde yalnız saat düzenlenir (alanından).
+    /// </summary>
+    private List<EditTarget> EditorTargets(Action onEdit)
+    {
+        var list = new List<EditTarget>();
+        if (_draft is null) return list;
+        foreach (var f in _draft.Fields)
+            list.Add(new EditTarget
+            {
+                Key = f.Key, Label = f.Label, Placeholder = f.Label, Hint = f.Hint, Optional = f.Optional, Multiline = f.Multiline,
+                Get = () => f.Value, Set = v => { SetField(f, v, ManualOrigin); onEdit(); }
+            });
+
+        Action<string> GridSetter(DataGridView grid, int row, int col) => v => { grid.Rows[row].Cells[col].Value = v; onEdit(); };
+        Func<string> GridGetter(DataGridView grid, int row, int col) => () => grid.Rows[row].Cells[col].Value?.ToString() ?? "";
+
+        int k = 0;
+        static bool Blank(DataGridViewRow r) => r.Cells.Cast<DataGridViewCell>().All(c => string.IsNullOrWhiteSpace(c.Value?.ToString()));
+        foreach (DataGridViewRow r in _gridCats.Rows)
+        {
+            if (r.IsNewRow || Blank(r)) continue; // PullGrids boş satırı belgeye koymaz
+            int i = r.Index, n = k++;
+            list.Add(Cell("kategori", n, "adi", GridGetter(_gridCats, i, 0), GridSetter(_gridCats, i, 0)));
+            list.Add(Cell("kategori", n, "kriteri", GridGetter(_gridCats, i, 1), GridSetter(_gridCats, i, 1)));
+        }
+
+        // Program: önce açılış kalemleri (saatleri dolu olan PROGRAM_* alanları), sonra sekmedeki satırlar.
+        int row = 0;
+        foreach (var (key, _) in ReportDraft.PreProgram)
+        {
+            var f = _draft.Fields.FirstOrDefault(x => x.Key == key);
+            if (f is null || string.IsNullOrWhiteSpace(f.Value)) continue;
+            var c = Cell("program", row++, "saat", () => f.Value, v => { SetField(f, v, ManualOrigin); onEdit(); });
+            list.Add(new EditTarget { Key = c.Key, Label = f.Label, Placeholder = "Saat", Optional = true, Get = c.Get, Set = c.Set });
+        }
+        foreach (DataGridViewRow r in _gridProgram.Rows)
+        {
+            if (r.IsNewRow || Blank(r)) continue;
+            int i = r.Index, n = row++;
+            list.Add(Cell("program", n, "tarih", GridGetter(_gridProgram, i, 0), GridSetter(_gridProgram, i, 0)));
+            list.Add(Cell("program", n, "saat", GridGetter(_gridProgram, i, 1), GridSetter(_gridProgram, i, 1)));
+            list.Add(Cell("program", n, "etkinlik", GridGetter(_gridProgram, i, 2), GridSetter(_gridProgram, i, 2)));
+        }
+
+        // Turnuva sonu tabloları (katılım, il, derece, sıralama): taslaktaki satırlar
+        foreach (var (name, rows) in _draft.Lists)
+            for (int i = 0; i < rows.Count; i++)
+            {
+                var data = rows[i];
+                foreach (var col in data.Keys.ToList())
+                    list.Add(Cell(name, i, col, () => data.TryGetValue(col, out var v) ? v : "", v => { data[col] = v; onEdit(); }));
+            }
+        return list;
+    }
+
+    /// <summary>Düzenleme modunda belge: alanlar renk koduyla işaretli, boşlar "[Alan adı]" yer tutucuyla.</summary>
+    private async Task<EditorRender> RenderForEditorAsync(WordSession word)
+    {
+        PullGrids();
+        var placeholders = EditorTargets(() => { }).GroupBy(t => t.Key, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().Placeholder, StringComparer.OrdinalIgnoreCase);
+        var marker = new FieldMarker(k => "[" + (placeholders.TryGetValue(k, out var l) && l.Length > 0 ? l : k) + "]");
+        var bytes = DocxTemplate.Fill(_templateBytes!, _draft!.ToReportData(), marker);
+        var docx = Path.Combine(Path.GetTempPath(), $"rapor_duzenle_{Guid.NewGuid():N}.docx");
+        var pdf = Path.ChangeExtension(docx, ".pdf");
+        await File.WriteAllBytesAsync(docx, bytes);
+        try { await word.ToPdfAsync(docx, pdf); }
+        finally { try { File.Delete(docx); } catch { } }
+        var sizes = await PdfPages.SizesAsync(pdf);
+        var pages = await PdfPages.RenderAsync(pdf, 110);
+        var boxes = await Task.Run(() => PdfFieldLocator.Locate(pdf, marker.Keys));
+        return new EditorRender(pdf, pages, sizes, boxes);
+    }
+
+    /// <summary>Temiz (işaretsiz) belgeyi açık Word oturumuyla PDF'e çevirir.</summary>
+    private async Task<string?> CleanPdfAsync(WordSession word, string pdfPath)
+    {
+        var bytes = BuildDocument(askMissing: false); // boş alan sorusu düzenleme ekranında soruldu
+        if (bytes is null) return null;
+        var docx = WriteTempDocx(bytes);
+        await word.ToPdfAsync(docx, pdfPath);
+        return pdfPath;
+    }
+
+    private async Task<string?> PrintFromEditorAsync(WordSession word, IWin32Window owner)
+    {
+        var pdf = Path.Combine(Path.GetTempPath(), $"rapor_yazdir_{Guid.NewGuid():N}.pdf");
+        try
+        {
+            if (await CleanPdfAsync(word, pdf) is null) return null;
+            var sizes = await PdfPages.SizesAsync(pdf);
+            bool ok = await ReportPreviewForm.PrintPdfAsync(owner, pdf, sizes, SelectedTemplate.Label);
+            if (ok) _lblStatus.Text = $"Yazıcıya gönderildi: {PrintRouter.TargetName}";
+            return ok ? $"✓ Yazıcıya gönderildi: {PrintRouter.TargetName}" : null;
+        }
+        finally { try { File.Delete(pdf); } catch { } }
+    }
+
+    private async Task<string?> SavePdfFromEditorAsync(WordSession word, IWin32Window owner)
+    {
+        using var dlg = new SaveFileDialog
+        {
+            Title = "PDF olarak kaydet", Filter = "PDF belgesi (*.pdf)|*.pdf",
+            FileName = DefaultName("pdf"), InitialDirectory = _ctx.OutputDir
+        };
+        if (dlg.ShowDialog(owner) != DialogResult.OK) return null;
+        if (await CleanPdfAsync(word, dlg.FileName) is null) return null;
+        _lblStatus.Text = "PDF kaydedildi: " + dlg.FileName;
+        OpenWithShell(dlg.FileName);
+        return "✓ PDF kaydedildi: " + Path.GetFileName(dlg.FileName);
+    }
+
+    private string? SaveDocxFromEditor(IWin32Window owner)
+    {
+        var bytes = BuildDocument(askMissing: false);
+        if (bytes is null) return null;
+        using var dlg = new SaveFileDialog
+        {
+            Title = "Word belgesi olarak kaydet", Filter = "Word belgesi (*.docx)|*.docx",
+            FileName = DefaultName("docx"), InitialDirectory = _ctx.OutputDir
+        };
+        if (dlg.ShowDialog(owner) != DialogResult.OK) return null;
+        try
+        {
+            File.WriteAllBytes(dlg.FileName, bytes);
+            _lblStatus.Text = "Kaydedildi: " + dlg.FileName;
+            return "✓ Word belgesi kaydedildi: " + Path.GetFileName(dlg.FileName);
+        }
+        catch (IOException ex) { return "Kaydedilemedi (dosya açık olabilir): " + ex.Message; }
+    }
+
     private void SaveDocx()
     {
         var bytes = BuildDocument();
@@ -1027,7 +1255,7 @@ public sealed class ReportForm : Form
 
     private void SetEnabled(bool on)
     {
-        foreach (var c in new Control[] { _cboTemplate, _btnUpload, _btnDocx, _btnPrint, _btnPdf, _cboYonerge, _btnYonRefresh })
+        foreach (var c in new Control[] { _cboTemplate, _btnUpload, _btnDocx, _btnEdit, _btnPrint, _btnPdf, _cboYonerge, _btnYonRefresh })
             c.Enabled = on;
         _btnRemove.Enabled = on && _cboTemplate.Items.Count > 0 && SelectedTemplate.Path is not null;
         if (on) UpdateNextButton(); else _btnNext.Enabled = false;

@@ -332,10 +332,12 @@ partial class MainForm
         dgvPairings.DefaultCellStyle.SelectionForeColor = System.Drawing.Color.Black;
         dgvPairings.Columns.Add(new DataGridViewCheckBoxColumn { Name = "colPrint", HeaderText = "Bas", FillWeight = 9 });
         dgvPairings.Columns.Add(new DataGridViewTextBoxColumn { Name = "colBoard", HeaderText = "Masa", FillWeight = 11, ReadOnly = true });
-        dgvPairings.Columns.Add(new DataGridViewTextBoxColumn { Name = "colWhite", HeaderText = "Beyaz", FillWeight = 34, ReadOnly = true });
+        dgvPairings.Columns.Add(new DataGridViewTextBoxColumn { Name = "colWhite", HeaderText = "Beyaz", FillWeight = 30, ReadOnly = true });
         dgvPairings.Columns.Add(new DataGridViewTextBoxColumn { Name = "colWRtg", HeaderText = "ELO", FillWeight = 10, ReadOnly = true });
-        dgvPairings.Columns.Add(new DataGridViewTextBoxColumn { Name = "colBlack", HeaderText = "Siyah", FillWeight = 34, ReadOnly = true });
+        dgvPairings.Columns.Add(new DataGridViewTextBoxColumn { Name = "colWIl", HeaderText = "İl", FillWeight = 12, ReadOnly = true });
+        dgvPairings.Columns.Add(new DataGridViewTextBoxColumn { Name = "colBlack", HeaderText = "Siyah", FillWeight = 30, ReadOnly = true });
         dgvPairings.Columns.Add(new DataGridViewTextBoxColumn { Name = "colBRtg", HeaderText = "ELO", FillWeight = 10, ReadOnly = true });
+        dgvPairings.Columns.Add(new DataGridViewTextBoxColumn { Name = "colBIl", HeaderText = "İl", FillWeight = 12, ReadOnly = true });
 
         btnSelectAll.Location = new System.Drawing.Point(10, 430); btnSelectAll.Size = new System.Drawing.Size(90, 26);
         btnSelectAll.Text = "☑ Tümü"; btnSelectAll.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;

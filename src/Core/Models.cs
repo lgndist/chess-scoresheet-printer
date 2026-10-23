@@ -46,7 +46,8 @@ public record Player(
     string? Title = null,// Unvan (GM/IM/FM…)
     int? Rating = null,  // ELO (0/boş olabilir)
     string? Federation = null,
-    string? Club = null)
+    string? Club = null,
+    string? Province = null) // il (TSF kayıt listesinden; kağıttaki "İl / City" kutusu)
 {
     /// <summary>"FM Ali Veli (12) 2300" gibi tek satır gösterim için yardımcı.</summary>
     public string DisplayLine()
@@ -76,7 +77,9 @@ public record Pairing(
     string? BoardLabel = null,  // takım: "maç.masa" (ör. "3.2"); bireysel: null → Board basılır
     string? WhiteTeam = null,   // takım: beyaz oyuncunun takımı
     string? BlackTeam = null,   // takım: siyah oyuncunun takımı
-    TournamentSystem System = TournamentSystem.Unknown) // şablon seçimi için
+    TournamentSystem System = TournamentSystem.Unknown, // şablon seçimi için
+    string? WhitePoints = null, // tur başındaki puan ("2½"); eşleştirme listesi için
+    string? BlackPoints = null)
 {
     public bool IsBye => Black is null;
 

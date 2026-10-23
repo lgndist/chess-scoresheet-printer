@@ -22,6 +22,17 @@ public static class Arbiters
         "Başhakem", "Başhakem Yardımcısı", "Hakem", "Turnuva Direktörü", "Eşlendirme Hakemi", "Saha Hakemi", "Organizasyon Görevlisi"
     };
 
+    /// <summary>
+    /// Karta basılacak görev. Sade yazımda yalnız iki görev vardır: başhakem "Başhakem", diğer
+    /// herkes (yardımcı, direktör, saha/eşlendirme hakemi…) "Hakem".
+    /// </summary>
+    public static string PrintedRole(string? role, bool simple)
+    {
+        var r = string.IsNullOrWhiteSpace(role) ? "Hakem" : role.Trim();
+        if (!simple) return r;
+        return EventGrouping.Fold(r) == EventGrouping.Fold("Başhakem") ? "Başhakem" : "Hakem";
+    }
+
     /// <summary>Dereceye göre ayırt edici şerit rengi.</summary>
     public static string ColorFor(string? grade) => grade switch
     {

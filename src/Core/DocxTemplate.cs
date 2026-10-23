@@ -14,6 +14,11 @@ public sealed class ReportData
     public List<Dictionary<string, string>> Categories { get; } = new();
     /// <summary>Program tablosu satırları: "tarih", "saat", "etkinlik".</summary>
     public List<Dictionary<string, string>> Program { get; } = new();
+    /// <summary>
+    /// Diğer tablolar: önek → satırlar ({{il.adi}} → Lists["il"]). Satırda "kategori" sütunu varsa
+    /// aynı kategorinin ardışık satırlarında o hücre dikey birleştirilir.
+    /// </summary>
+    public Dictionary<string, List<Dictionary<string, string>>> Lists { get; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 /// <summary>Belgede bulunan doldurulabilir yerler.</summary>
@@ -25,6 +30,8 @@ public sealed record TemplateAnalysis(
 {
     /// <summary>Etiketli hücrelerde belgede zaten yazan değerler (kullanıcının kendi yönergesi).</summary>
     public IReadOnlyDictionary<string, string> Existing { get; init; } = new Dictionary<string, string>();
+    /// <summary>Kategori/program dışındaki tablo önekleri ({{il.adi}} → "il").</summary>
+    public IReadOnlyList<string> Lists { get; init; } = Array.Empty<string>();
 }
 
 /// <summary>
@@ -58,8 +65,11 @@ public static class DocxTemplate
     /// <summary>Tablo başlıklarında geçen, değer olmayan sözcükler.</summary>
     private static readonly HashSet<string> HeaderWords = new()
     {
-        "saat", "program", "kategori adi", "kategori kriteri", "kategori", "tur", "sira", "no"
+        "saat", "program", "kategori adi", "kategori kriteri", "kategori", "tur", "sira", "no",
+        "sporcu sayisi", "sayi", "puan", "rtg", "elo", "ukd", "rating", "ad soyad", "derece", "oynanan tur", "il", "ili"
     };
+
+    private static readonly Regex ListToken = new(@"\{\{\s*[A-Za-z0-9_]+\.");
 
     private static IEnumerable<string> Parts(ZipArchive zip)
         => zip.Entries.Select(e => e.FullName)
@@ -72,6 +82,7 @@ public static class DocxTemplate
         var labels = new List<string>();
         var existing = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         bool cats = false, prog = false;
+        var lists = new List<string>();
         foreach (var name in Parts(zip))
         {
             var x = Load(zip, name);
@@ -82,6 +93,7 @@ public static class DocxTemplate
                     var key = m.Groups[1].Value;
                     if (key.StartsWith("kategori.", StringComparison.OrdinalIgnoreCase)) cats = true;
                     else if (key.StartsWith("program.", StringComparison.OrdinalIgnoreCase)) prog = true;
+                    else if (key.Contains('.')) { var pre = key[..key.IndexOf('.')]; if (!lists.Contains(pre, StringComparer.OrdinalIgnoreCase)) lists.Add(pre); }
                     else if (!fields.Contains(key, StringComparer.OrdinalIgnoreCase)) fields.Add(key);
                 }
             // Word yer imleri ve içerik denetimleri (adı/etiketi alan anahtarı ya da bilinen etiket)
@@ -97,10 +109,11 @@ public static class DocxTemplate
                 if (!existing.ContainsKey(key) && Regex.IsMatch(v, @"[\p{L}\d]{2,}")) existing[key] = v; // "…", "-" değer sayılmaz
             }
         }
-        return new TemplateAnalysis(fields.Concat(labels).ToList(), cats, prog, labels) { Existing = existing };
+        return new TemplateAnalysis(fields.Concat(labels).ToList(), cats, prog, labels) { Existing = existing, Lists = lists };
     }
 
-    public static byte[] Fill(byte[] docx, ReportData data)
+    /// <param name="marker">Düzenleme önizlemesi: alanlar renk koduyla işaretlenir, boşlar yer tutucuyla görünür (bkz. <see cref="FieldMarker"/>).</param>
+    public static byte[] Fill(byte[] docx, ReportData data, FieldMarker? marker = null)
     {
         var input = new ZipArchive(new MemoryStream(docx), ZipArchiveMode.Read);
         var output = new MemoryStream();
@@ -115,12 +128,17 @@ public static class DocxTemplate
                 {
                     var x = Load(input, entry.FullName);
                     NormalizeParagraphs(x);
-                    ExpandRows(x, "kategori.", data.Categories, mergeDateKey: null);
-                    ExpandRows(x, "program.", data.Program, mergeDateKey: "tarih");
-                    ReplaceTokens(x, data.Values);
-                    FillBookmarks(x, data.Values);
-                    FillContentControls(x, data.Values);
-                    FillLabelCells(x, data.Values);
+                    // Etiketli hücreler satırlar çoğaltılmadan ÖNCE bulunur: liste tablosu başlıkları ("İL | SPORCU SAYISI")
+                    // alttaki {{il.…}} satırından tanınıp atlanabilsin.
+                    var labelCells = LabelCells(x).ToList();
+                    ExpandRows(x, "kategori.", data.Categories, mergeDateKey: null, marker);
+                    ExpandRows(x, "program.", data.Program, mergeDateKey: "tarih", marker);
+                    foreach (var (prefix, rows) in data.Lists)
+                        ExpandRows(x, prefix + ".", rows, rows.Any(r => r.ContainsKey("kategori")) ? "kategori" : null, marker);
+                    ReplaceTokens(x, data.Values, marker);
+                    FillBookmarks(x, data.Values, marker);
+                    FillContentControls(x, data.Values, marker);
+                    FillLabelCells(labelCells, data.Values, marker);
                     using var w = new StreamWriter(ws, new UTF8Encoding(false));
                     x.Save(w, SaveOptions.DisableFormatting);
                 }
@@ -160,9 +178,14 @@ public static class DocxTemplate
 
     private static void Preserve(XElement t) => t.SetAttributeValue(XNamespace.Xml + "space", "preserve");
 
-    /// <summary>"{{prefix…}}" içeren tablo satırını her öğe için çoğaltır.</summary>
-    private static void ExpandRows(XDocument x, string prefix, List<Dictionary<string, string>> items, string? mergeDateKey)
+    /// <summary>
+    /// "{{prefix…}}" içeren tablo satırını her öğe için çoğaltır. <paramref name="mergeDateKey"/> sütunu
+    /// ardışık satırlarda aynıysa (program günü, kategori) hücre dikey birleştirilir. Düzenleme modunda
+    /// her hücre "önek[satır].sütun" anahtarıyla işaretlenir (ör. "program[2].saat").
+    /// </summary>
+    private static void ExpandRows(XDocument x, string prefix, List<Dictionary<string, string>> items, string? mergeDateKey, FieldMarker? marker = null)
     {
+        string list = prefix.TrimEnd('.');
         foreach (var row in x.Descendants(W + "tr").ToList())
         {
             var text = string.Concat(row.Descendants(W + "t").Select(t => t.Value));
@@ -170,8 +193,9 @@ public static class DocxTemplate
 
             string? prevDate = null;
             XElement anchor = row;
-            foreach (var item in items)
+            for (int index = 0; index < items.Count; index++)
             {
+                var item = items[index];
                 var clone = new XElement(row);
                 string? date = mergeDateKey is not null && item.TryGetValue(mergeDateKey, out var d) ? d : null;
                 bool continueDay = date is not null && date == prevDate;
@@ -188,7 +212,24 @@ public static class DocxTemplate
                             else vm.SetAttributeValue(W + "val", "restart");
                         }
                     }
-                    foreach (var t in tc.Descendants(W + "t"))
+                    foreach (var t in tc.Descendants(W + "t").ToList())
+                    {
+                        if (marker is not null && t.Parent?.Name == W + "r" && t.Value.Contains("{{"))
+                        {
+                            int rowNo = index;
+                            bool merged = isDateCell && continueDay;
+                            SplitMarked(t, key =>
+                            {
+                                if (!key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return ("{{" + key + "}}", null);
+                                if (merged) return ("", null); // birleşik hücrenin devamı
+                                var col = key[prefix.Length..];
+                                var v = item.TryGetValue(col, out var s) ? s : "";
+                                var mark = $"{list}[{rowNo}].{col}";
+                                bool empty = string.IsNullOrWhiteSpace(v);
+                                return (empty ? marker.Placeholder(mark) : v, FieldMarker.ColorHex(marker.IdOf(mark), empty));
+                            });
+                            continue;
+                        }
                         t.Value = Token.Replace(t.Value, m =>
                         {
                             var key = m.Groups[1].Value;
@@ -196,6 +237,7 @@ public static class DocxTemplate
                             if (isDateCell && continueDay) return "";
                             return item.TryGetValue(key[prefix.Length..], out var v) ? v : "";
                         });
+                    }
                 }
                 anchor.AddAfterSelf(clone);
                 anchor = clone;
@@ -205,14 +247,86 @@ public static class DocxTemplate
         }
     }
 
-    private static void ReplaceTokens(XDocument x, IReadOnlyDictionary<string, string> values)
+    private static void ReplaceTokens(XDocument x, IReadOnlyDictionary<string, string> values, FieldMarker? marker)
     {
-        foreach (var t in x.Descendants(W + "t"))
+        foreach (var t in x.Descendants(W + "t").ToList())
         {
             if (!t.Value.Contains("{{")) continue;
+            if (marker is not null && t.Parent?.Name == W + "r")
+            {
+                SplitMarked(t, key => Display(key, values, marker)!.Value);
+                continue;
+            }
             t.Value = Token.Replace(t.Value, m => values.TryGetValue(m.Groups[1].Value, out var v) ? v : "");
             Preserve(t);
         }
+    }
+
+    /// <summary>
+    /// Düzenleme modu: "İli: {{IL}} / {{ILCE}}" metnini koşulara böler; her alanın değeri (boşsa yer
+    /// tutucu) kendi renk koduyla ayrı koşuda, sabit metin özgün biçimiyle kalır.
+    /// </summary>
+    private static void SplitMarked(XElement t, Func<string, (string Text, string? Color)> resolve)
+    {
+        var run = t.Parent!;
+        var rPr = run.Element(W + "rPr");
+        var text = t.Value;
+        var runs = new List<XElement>();
+        int pos = 0;
+        foreach (Match m in Token.Matches(text))
+        {
+            if (m.Index > pos) runs.Add(MakeRun(rPr, text[pos..m.Index], null));
+            var (shown, color) = resolve(m.Groups[1].Value);
+            runs.Add(MakeRun(rPr, shown, color));
+            pos = m.Index + m.Length;
+        }
+        if (pos < text.Length) runs.Add(MakeRun(rPr, text[pos..], null));
+        run.AddAfterSelf(runs);
+        t.Remove();
+        if (!run.Elements().Any(e => e.Name != W + "rPr")) run.Remove();
+    }
+
+    private static XElement MakeRun(XElement? rPr, string text, string? color)
+    {
+        var r = new XElement(W + "r", rPr is null ? null : new XElement(rPr));
+        var t = new XElement(W + "t", text);
+        Preserve(t);
+        r.Add(t);
+        if (color is not null) SetColor(r, color);
+        return r;
+    }
+
+    /// <summary>Alanın gösterilecek yazısı ve rengi; işaretleyici yoksa boş alan atlanır (null).</summary>
+    private static (string Text, string? Color)? Display(string key, IReadOnlyDictionary<string, string> values, FieldMarker? marker)
+    {
+        var v = values.TryGetValue(key, out var s) ? s : "";
+        bool empty = string.IsNullOrWhiteSpace(v);
+        if (marker is null) return empty ? null : (v, null);
+        return (empty ? marker.Placeholder(key) : v, FieldMarker.ColorHex(marker.IdOf(key), empty));
+    }
+
+    // w:rPr çocuklarının şema sırası: w:color bunlardan sonra gelmeli (Word sıraya duyarlı).
+    private static readonly HashSet<string> BeforeColor = new()
+    {
+        "rStyle", "rFonts", "b", "bCs", "i", "iCs", "caps", "smallCaps", "strike", "dstrike", "outline",
+        "shadow", "emboss", "imprint", "noProof", "snapToGrid", "vanish", "webHidden"
+    };
+
+    /// <summary>Koşunun yazı rengini ayarlar (rPr içinde şema sırasına uygun yere).</summary>
+    private static void SetColor(XElement run, string hex)
+    {
+        var rPr = run.Element(W + "rPr");
+        if (rPr is null) { rPr = new XElement(W + "rPr"); run.AddFirst(rPr); }
+        rPr.Element(W + "color")?.Remove();
+        var color = new XElement(W + "color", new XAttribute(W + "val", hex));
+        var after = rPr.Elements().LastOrDefault(e => BeforeColor.Contains(e.Name.LocalName));
+        if (after is null) rPr.AddFirst(color); else after.AddAfterSelf(color);
+    }
+
+    private static void ColorRuns(IEnumerable<XElement> runs, string? color)
+    {
+        if (color is null) return;
+        foreach (var r in runs) SetColor(r, color);
     }
 
     // ================= Yer imleri / içerik denetimleri =================
@@ -248,22 +362,22 @@ public static class DocxTemplate
         }
     }
 
-    private static void FillBookmarks(XDocument x, IReadOnlyDictionary<string, string> values)
+    private static void FillBookmarks(XDocument x, IReadOnlyDictionary<string, string> values, FieldMarker? marker)
     {
         foreach (var (key, start, runs, _) in Bookmarks(x).ToList())
         {
-            if (!values.TryGetValue(key, out var v) || string.IsNullOrWhiteSpace(v)) continue;
+            if (Display(key, values, marker) is not var (v, color)) continue;
             var ts = runs.SelectMany(r => r.Elements(W + "t")).ToList();
             if (ts.Count > 0)
             {
                 ts[0].Value = v; Preserve(ts[0]);
                 foreach (var t in ts.Skip(1)) t.Value = "";
+                ColorRuns(runs, color);
                 continue;
             }
             // Boş (nokta) yer imi: önceki koşunun biçimiyle yeni koşu eklenir.
             var rPr = start.ElementsBeforeSelf(W + "r").LastOrDefault()?.Element(W + "rPr");
-            var nt = new XElement(W + "t", v); Preserve(nt);
-            start.AddAfterSelf(new XElement(W + "r", rPr is null ? null : new XElement(rPr), nt));
+            start.AddAfterSelf(MakeRun(rPr, v, color));
         }
     }
 
@@ -282,11 +396,11 @@ public static class DocxTemplate
         }
     }
 
-    private static void FillContentControls(XDocument x, IReadOnlyDictionary<string, string> values)
+    private static void FillContentControls(XDocument x, IReadOnlyDictionary<string, string> values, FieldMarker? marker)
     {
         foreach (var (key, sdt, _) in ContentControls(x).ToList())
         {
-            if (!values.TryGetValue(key, out var v) || string.IsNullOrWhiteSpace(v)) continue;
+            if (Display(key, values, marker) is not var (v, color)) continue;
             var content = sdt.Element(W + "sdtContent");
             if (content is null) continue;
             sdt.Element(W + "sdtPr")?.Element(W + "showingPlcHdr")?.Remove(); // artık yer tutucu metin değil
@@ -297,10 +411,10 @@ public static class DocxTemplate
             {
                 ts[0].Value = v; Preserve(ts[0]);
                 foreach (var t in ts.Skip(1)) t.Value = "";
+                ColorRuns(content.Descendants(W + "r"), color);
                 continue;
             }
-            var nt = new XElement(W + "t", v); Preserve(nt);
-            var run = new XElement(W + "r", nt);
+            var run = MakeRun(null, v, color);
             var p = content.Descendants(W + "p").FirstOrDefault();
             if (p is not null) p.Add(run); else content.Add(run);
         }
@@ -311,6 +425,9 @@ public static class DocxTemplate
     {
         foreach (var row in x.Descendants(W + "tr"))
         {
+            // Liste tablosunun başlığı: alttaki satır {{il.…}} gibi liste işaretleri taşıyor.
+            if (row.ElementsAfterSelf(W + "tr").FirstOrDefault() is { } below &&
+                ListToken.IsMatch(string.Concat(below.Descendants(W + "t").Select(t => t.Value)))) continue;
             var cells = row.Elements(W + "tc").ToList();
             for (int i = 0; i + 1 < cells.Count; i++)
             {
@@ -326,22 +443,22 @@ public static class DocxTemplate
         }
     }
 
-    private static void FillLabelCells(XDocument x, IReadOnlyDictionary<string, string> values)
+    private static void FillLabelCells(List<(string Key, XElement ValueCell)> labelCells, IReadOnlyDictionary<string, string> values, FieldMarker? marker)
     {
-        foreach (var (key, cell) in LabelCells(x).ToList())
+        foreach (var (key, cell) in labelCells)
         {
-            if (!values.TryGetValue(key, out var v) || string.IsNullOrWhiteSpace(v)) continue;
+            if (Display(key, values, marker) is not var (v, color)) continue;
             var ts = cell.Descendants(W + "t").ToList();
             if (ts.Count == 0)
             {
                 var p = cell.Element(W + "p") ?? new XElement(W + "p");
                 if (p.Parent is null) cell.Add(p);
-                var t = new XElement(W + "t", v); Preserve(t);
-                p.Add(new XElement(W + "r", t));
+                p.Add(MakeRun(null, v, color));
                 continue;
             }
             ts[0].Value = v; Preserve(ts[0]);
             foreach (var t in ts.Skip(1)) t.Value = "";
+            ColorRuns(cell.Descendants(W + "r"), color);
         }
     }
 

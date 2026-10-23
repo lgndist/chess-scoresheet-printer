@@ -13,6 +13,9 @@ internal sealed class PairingColumnMap
     private readonly int _board, _result;
     private readonly int _wName, _wRtg, _wNo;
     private readonly int _bName, _bRtg, _bNo;
+    private readonly int _wPts, _bPts;
+    private static readonly string[] Pts = { "puan", "pts.", "pts", "punkte", "pkt.", "points" };
+    private static string? NullIfEmpty(string s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 
     private static readonly string[] Board = { "masa", "bo.", "bo", "br.", "br", "board", "no" };
     private static readonly string[] Result = { "sonuç", "sonuc", "result", "res.", "res", "erg." };
@@ -37,6 +40,9 @@ internal sealed class PairingColumnMap
         // No. sütunları: beyaz solda, siyah sağda. "Masa" da No olabileceğinden board'ı dışla.
         _wNo = FirstIndexExcept(headers, No, lo: 0, hi: _result, except: _board);
         _bNo = FirstIndex(headers, No, lo: _result + 1, hi: headers.Count);
+
+        _wPts = FirstIndex(headers, Pts, lo: 0, hi: _result);
+        _bPts = FirstIndex(headers, Pts, lo: _result + 1, hi: headers.Count);
 
         // İsim başlıkla bulunamadıysa: eksenin solundaki/sağındaki en olası metin sütununu seç.
         if (_wName < 0) _wName = GuessNameColumn(headers, 0, _result);
@@ -65,7 +71,8 @@ internal sealed class PairingColumnMap
             ? null
             : new Player(StartNo: ParseInt(Cell(_bNo)), Name: blackName, Rating: ParseRating(Cell(_bRtg)));
 
-        return new Pairing(board, white, black, Result_(Cell(_result)));
+        return new Pairing(board, white, black, Result_(Cell(_result)),
+            WhitePoints: NullIfEmpty(Cell(_wPts)), BlackPoints: black is null ? null : NullIfEmpty(Cell(_bPts)));
     }
 
     // ---- index bulucular ----

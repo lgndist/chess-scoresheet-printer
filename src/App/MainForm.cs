@@ -42,6 +42,8 @@ public partial class MainForm : Form
     {
         InitializeComponent();
         InitToolButtons();
+        InitListButtons();
+        InitUx();
         LoadBranding();
         var baseDir = AppContext.BaseDirectory;
         _configPath = Path.Combine(baseDir, "config.json");
@@ -336,6 +338,7 @@ public partial class MainForm : Form
         grpOnline.Visible = rbOnline.Checked;
         grpFile.Visible = !rbOnline.Checked;
         grpQuick.Visible = rbOnline.Checked;
+        if (_grpLists is not null) _grpLists.Visible = rbOnline.Checked;
         RelayoutLeft();
         ShowPairings(rbOnline.Checked ? _syncedTournament : _fileTournament);
     }
@@ -434,7 +437,7 @@ public partial class MainForm : Form
         SetStatus("Turnuva bilgisi çekiliyor…", ok: true);
         try
         {
-            var info = await _online.GetEventAsync(tnr);
+            var info = await _online.GetEventAsync(tnr); _ranked[tnr] = info.RankedRound;
             bool isNewEvent = _config.Online.SelectedTnr != tnr;
             _eventTnr = tnr;
             _roundCache[tnr] = (info.MaxRound, info.CurrentRound, info.System); // bu kategorinin turları
@@ -501,7 +504,7 @@ public partial class MainForm : Form
             {
                 try
                 {
-                    var info = await _online.GetEventAsync(c.Tnr);
+                    var info = await _online.GetEventAsync(c.Tnr); _ranked[c.Tnr] = info.RankedRound;
                     _roundCache[c.Tnr] = (info.MaxRound, info.CurrentRound, info.System);
                 }
                 catch { continue; }
@@ -570,12 +573,13 @@ public partial class MainForm : Form
                 Text = QuickText(c),
                 Tag = c,
                 AutoSize = true,
-                MinimumSize = new System.Drawing.Size(70, 36),
-                Margin = new Padding(3),
-                Padding = new Padding(10, 3, 10, 3),
+                // Kompakt: küçük ekranlı dizüstünde de sol sütun kaydırmasız sığsın.
+                MinimumSize = new System.Drawing.Size(60, 30),
+                Margin = new Padding(2),
+                Padding = new Padding(6, 1, 6, 1),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = ThGreen,
-                Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Bold)
+                Font = new System.Drawing.Font("Segoe UI", 9.5F, System.Drawing.FontStyle.Bold)
             };
             b.Click += quickCategory_Click;
             StyleButton(b); // birincil (yeşil) stil + hover/pressed
@@ -583,6 +587,7 @@ public partial class MainForm : Form
             flowQuick.Controls.Add(b);
         }
         btnPrintAll.Enabled = cats.Count > 0;
+        BuildListButtons(cats);
         RelayoutLeft();
     }
 
@@ -609,6 +614,7 @@ public partial class MainForm : Form
         if (b is null) return;
         b.Text = QuickText(c);
         _quickTip.SetToolTip(b, QuickTip(c));
+        UpdateListButtons(c);
         RelayoutLeft(); // yazı uzadıysa satır sayısı değişebilir
     }
 
@@ -659,7 +665,7 @@ public partial class MainForm : Form
             if (!_roundCache.TryGetValue(catTnr, out var rounds))
             {
                 SetBusy(true); busied = true;
-                var info = await _online.GetEventAsync(catTnr);
+                var info = await _online.GetEventAsync(catTnr); _ranked[catTnr] = info.RankedRound;
                 rounds = (info.MaxRound, info.CurrentRound, info.System);
                 _roundCache[catTnr] = rounds;
                 var cat = CurrentCategories().FirstOrDefault(c => c.Tnr == catTnr);
@@ -739,6 +745,7 @@ public partial class MainForm : Form
 
         int selRound = SelectedRound();
         int prevLatest = _roundCache.TryGetValue(sel.Tnr, out var pr) ? pr.Current : selRound;
+        var before = SnapshotRounds(cats); // yeni tur gelen kategoriler vurgulansın
         foreach (var c in cats) _roundCache.Remove(c.Tnr);
         foreach (var c in cats) UpdateQuickButton(c); // "…" — yenileniyor
 
@@ -754,6 +761,7 @@ public partial class MainForm : Form
         }
         await SyncPairingsAsync(showWarnings: true);
         await PrefetchCategoryRoundsAsync(cats, _eventTnr.Value);
+        FlashChangedRounds(cats, before);
         Log($"🔄 Yenilendi: {string.Join(", ", cats.Select(QuickText).Select(t => t.Replace("🖨 ", "")))}");
     }
 
@@ -837,7 +845,7 @@ public partial class MainForm : Form
             UpdateConfigFromUi();
             if (!_roundCache.TryGetValue(cat.Tnr, out var r))
             {
-                var info = await _online.GetEventAsync(cat.Tnr);
+                var info = await _online.GetEventAsync(cat.Tnr); _ranked[cat.Tnr] = info.RankedRound;
                 r = (info.MaxRound, info.CurrentRound, info.System);
                 _roundCache[cat.Tnr] = r;
                 UpdateQuickButton(cat);
@@ -931,7 +939,7 @@ public partial class MainForm : Form
         {
             try
             {
-                var info = await _online.GetEventAsync(catTnr);
+                var info = await _online.GetEventAsync(catTnr); _ranked[catTnr] = info.RankedRound;
                 rounds = (info.MaxRound, info.CurrentRound, info.System);
                 _roundCache[catTnr] = rounds;
             }
@@ -1030,12 +1038,17 @@ public partial class MainForm : Form
         dgvPairings.Rows.Clear();
         if (_gridTournament is not null)
         {
-            foreach (var p in _gridTournament.Pairings)
+            // İller (kayıt listesi / elle / öğrenilen) basılmadan önce listede görünsün; ağ isteği yok.
+            var withProv = WithProvinces(_gridTournament).Pairings;
+            for (int k = 0; k < _gridTournament.Pairings.Count; k++)
             {
+                var p = _gridTournament.Pairings[k];
+                var pv = withProv[k];
                 bool print = _gridKey is { } key ? IsChecked(key, p) : DefaultChecked(p);
                 int i = dgvPairings.Rows.Add(print, p.BoardText, WithTeam(p.White.Name, p.WhiteTeam),
-                    p.White.Rating?.ToString() ?? "",
-                    p.IsBye ? "BAY" : WithTeam(p.Black!.Name, p.BlackTeam), p.Black?.Rating?.ToString() ?? "");
+                    p.White.Rating?.ToString() ?? "", pv.White.Province ?? "",
+                    p.IsBye ? "BAY" : WithTeam(p.Black!.Name, p.BlackTeam), p.Black?.Rating?.ToString() ?? "",
+                    pv.Black?.Province ?? "");
                 var row = dgvPairings.Rows[i];
                 row.Tag = p;
                 if (p.IsBye)
@@ -1045,6 +1058,10 @@ public partial class MainForm : Form
                 }
             }
         }
+        // İl sütunları yalnız il bilgisi varken görünür (kayıt listesi alınmamışsa boş sütun kalabalık yapmasın).
+        bool anyProvince = dgvPairings.Rows.Cast<DataGridViewRow>()
+            .Any(r => !string.IsNullOrEmpty(r.Cells["colWIl"].Value as string) || !string.IsNullOrEmpty(r.Cells["colBIl"].Value as string));
+        dgvPairings.Columns["colWIl"]!.Visible = dgvPairings.Columns["colBIl"]!.Visible = anyProvince;
         dgvPairings.ResumeLayout();
         dgvPairings.ClearSelection();
         _restoringGrid = false;
@@ -1140,12 +1157,17 @@ public partial class MainForm : Form
     {
         if (e.Control && e.KeyCode == Keys.P && btnPrint.Enabled) { e.SuppressKeyPress = true; btnPrint.PerformClick(); }
         else if (e.KeyCode == Keys.F5 && rbOnline.Checked && btnSync.Enabled) { e.SuppressKeyPress = true; btnSync.PerformClick(); }
+        else if (e.Control && e.KeyCode is Keys.E or Keys.R && !_busy && _gridTournament is not null)
+        {
+            e.SuppressKeyPress = true;
+            _ = PrintGridListAsync(results: e.KeyCode == Keys.R); // Ctrl+E eşleştirme, Ctrl+R sonuç listesi
+        }
     }
 
     /// <summary>Önizleme açar; true = kullanıcı yazıcıya gönderdi.</summary>
     private bool PrintTournament(Tournament baseT, int copies)
     {
-        var t = ExpandCopies(baseT, copies);
+        var t = ExpandCopies(WithProvinces(baseT), copies);
         if (!_config.Overlay.IsConfigured)
             throw new UserMessageException("Önce ⚙ Ayarlar'dan hazır kağıt şablonu tasarlayın.");
         SetStatus("Önizleme açılıyor…", ok: true);
@@ -1216,7 +1238,7 @@ public partial class MainForm : Form
         if (!_config.Overlay.IsConfigured)
             throw new UserMessageException("Önce ⚙ Ayarlar'dan hazır kağıt şablonu tasarlayın.");
         var path = Path.Combine(_outputDir, BuildFileName(t, suffix + "_overlay"));
-        Overlay.OverlayPdfRenderer.Render(p => _config.TemplateFor(p.System), t, path, _config.Layout.PageSize);
+        Overlay.OverlayPdfRenderer.Render(p => _config.TemplateFor(p.System), WithProvinces(t), path, _config.Layout.PageSize);
         return path;
     }
 
@@ -1290,6 +1312,9 @@ public partial class MainForm : Form
         foreach (Control c in new Control[] { btnPrint, btnPdf, btnBrowse, btnSearch, btnSync, cboTournament, cboProvince, flowQuick })
             c.Enabled = !busy;
         btnPrintAll.Enabled = !busy && flowQuick.Controls.Count > 0;
+        if (_grpLists is not null) _grpLists.Enabled = !busy;
+        if (_btnGridList is not null) _btnGridList.Enabled = !busy;
+        _busy = busy;
         Cursor = busy ? Cursors.WaitCursor : Cursors.Default;
     }
 
@@ -1299,7 +1324,11 @@ public partial class MainForm : Form
         lblStatus.ForeColor = ok ? System.Drawing.Color.FromArgb(95, 122, 70) : System.Drawing.Color.FromArgb(160, 60, 60);
     }
 
-    private void Log(string line) => txtLog.AppendText(line + Environment.NewLine);
+    private void Log(string line)
+    {
+        txtLog.AppendText(line + Environment.NewLine);
+        OnLogged(line);
+    }
 
     private void Fail(string title, string message)
     {

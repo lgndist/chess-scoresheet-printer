@@ -22,6 +22,8 @@ public sealed class ReportField
 /// <summary>chess-results dışındaki bilgi kaynakları.</summary>
 public sealed class ReportSources
 {
+    /// <summary>Turnuva sonu raporu: final sıralamalarından hesaplanan değerler ve tablolar.</summary>
+    public EndReportData? EndReport { get; init; }
     /// <summary>Kullanıcının önceki raporlarda verdiği, turnuvadan turnuvaya değişmeyen cevaplar.</summary>
     public IReadOnlyDictionary<string, string> Remembered { get; init; } = new Dictionary<string, string>();
     /// <summary>Bu turnuva için daha önce hazırlanan rapor/tutanakta kullanılan değerler.</summary>
@@ -53,6 +55,8 @@ public sealed class ReportDraft
     public List<ReportField> Fields { get; } = new();
     public List<ReportCategoryRow> Categories { get; } = new();
     public List<ReportProgramRow> Program { get; } = new();
+    /// <summary>Diğer tablolar (turnuva sonu raporu: katılım, il, derece, sıralama); önek → satırlar.</summary>
+    public Dictionary<string, List<Dictionary<string, string>>> Lists { get; } = new(StringComparer.OrdinalIgnoreCase);
     public bool HasCategoryTable { get; init; }
     public bool HasProgramTable { get; init; }
     /// <summary>chess-results'taki zaman kontrolünden anlaşılan tempo (bilinmiyorsa null).</summary>
@@ -80,6 +84,7 @@ public sealed class ReportDraft
             if (!string.IsNullOrEmpty(t)) d.Program.Add(new() { ["tarih"] = firstDate, ["saat"] = t!, ["etkinlik"] = ev });
         }
         foreach (var p in Program) d.Program.Add(new() { ["tarih"] = p.Date, ["saat"] = p.Time, ["etkinlik"] = p.Event });
+        foreach (var (k, rows) in Lists) d.Lists[k] = rows.Select(r => new Dictionary<string, string>(r)).ToList();
         return d;
     }
 }
@@ -122,6 +127,10 @@ public static class ReportBuilder
             ["TOPLANTI_TARIHI"] = ("Teknik toplantı tarihi", "Örn. 03.10.2026", false, false),
             ["TOPLANTI_SAATI"] = ("Teknik toplantı saati", "Örn. 09.30", false, false),
             ["TOPLANTI_YERI"] = ("Teknik toplantı yeri", "Turnuva salonu", false, false),
+            ["SPORCU_SAYISI"] = ("Toplam sporcu sayısı", "Final sıralamalarından", false, false),
+            ["IL_SAYISI"] = ("Katılan il sayısı", "TSF kayıt listesindeki illerden (📋 Kayıt / İl)", true, false),
+            ["RAPOR_TARIHI"] = ("Rapor tarihi", "Örn. 04.10.2026", false, false),
+            ["DEGERLENDIRME"] = ("Genel değerlendirme / itirazlar", "Turnuvanın işleyişi, itirazlar, olağanüstü durumlar", false, true),
         };
 
     /// <summary>Kullanıcıdan alınıp bir sonraki raporda önerilecek alanlar.</summary>
@@ -210,6 +219,12 @@ public static class ReportBuilder
             ["TUR_SAYISI"] = cats.Count > 0 ? cats.Max(c => c.Max).ToString() : Info("Tur Sayısı"),
             ["SEZON"] = first is { } f ? Season(f) : "",
         };
+        // Turnuva sonu raporu: final sıralamalarından hesaplananlar
+        if (sources.EndReport is { } end)
+        {
+            foreach (var (k, v) in end.Values) if (!string.IsNullOrWhiteSpace(v)) auto[k] = v;
+            foreach (var (k, rows) in end.Lists) draft.Lists[k] = rows;
+        }
         // İl: seçili il; yoksa turnuva adında ya da yerinde geçen il ("Merkez/Elazığ").
         if (string.IsNullOrWhiteSpace(province)) province = DetectProvince(eventName ?? "", auto["YER"]);
         if (!string.IsNullOrWhiteSpace(province)) auto["IL"] = province!;
@@ -277,6 +292,8 @@ public static class ReportBuilder
             }
         if (sources.EventMemory is { } mem) foreach (var (k, v) in mem) Suggest(k, v, "bu turnuvada girilen");
 
+        // Turnuva sonu raporu: değerlendirme için başlangıç metni
+        Suggest("DEGERLENDIRME", "Turnuva, yönergesine ve TSF kurallarına uygun olarak sorunsuz tamamlanmıştır. Turnuva süresince itiraz olmamıştır.", "öneri");
         // Teknik toplantı saati, programdaki teknik toplantı kaleminden
         if (!suggested.ContainsKey("TOPLANTI_SAATI") && suggested.TryGetValue("PROGRAM_TEKNIK", out var tek))
             Suggest("TOPLANTI_SAATI", tek.Value, tek.Origin);

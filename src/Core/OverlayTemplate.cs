@@ -29,7 +29,9 @@ public enum FieldKind
     // Kağıtta ". . . / . . . / 20 . . ." kılavuzlu tarih kutusu için üç parça:
     DateDay,         // "03"
     DateMonth,       // "10"
-    DateYear2        // "26" (kağıtta "20" önceden basılı)
+    DateYear2,       // yıl, 4 hane ("2026"); adı eski kayıtlarla uyum için korunur
+    WhiteProvince,   // beyazın ili (TSF kayıt listesinden; "İl / City" kutusu)
+    BlackProvince    // siyahın ili
 }
 
 public static class FieldKinds

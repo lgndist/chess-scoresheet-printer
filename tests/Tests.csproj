@@ -22,6 +22,7 @@
     <None Include="TestData\*.html" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\assets\turnuva_yonergesi_sablon.docx" Link="TestData\turnuva_yonergesi_sablon.docx" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\assets\teknik_toplanti_tutanagi_sablon.docx" Link="TestData\teknik_toplanti_tutanagi_sablon.docx" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\assets\turnuva_sonu_raporu_sablon.docx" Link="TestData\turnuva_sonu_raporu_sablon.docx" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
