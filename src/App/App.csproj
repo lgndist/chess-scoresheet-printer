@@ -13,8 +13,8 @@
     <Product>Chess Scoresheet Printer</Product>
     <Authors>Tunahan Dilercan</Authors>
     <Description>Satranç turnuvaları için hazır notasyon kâğıdı yazdırma aracı.</Description>
-    <Version>1.5.1</Version>
-    <FileVersion>1.5.1.0</FileVersion>
+    <Version>1.5.2</Version>
+    <FileVersion>1.5.2.0</FileVersion>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <ApplicationIcon>..\..\assets\app.ico</ApplicationIcon>
@@ -40,6 +40,9 @@
     <EmbeddedResource Include="..\..\assets\fonts\Montserrat-Bold.ttf" LogicalName="NotasyonOtomasyonu.App.fonts.Montserrat-Bold.ttf" />
     <EmbeddedResource Include="..\..\assets\fonts\Oswald-Bold.ttf" LogicalName="NotasyonOtomasyonu.App.fonts.Oswald-Bold.ttf" />
     <EmbeddedResource Include="..\..\assets\fonts\Inter-Bold.ttf" LogicalName="NotasyonOtomasyonu.App.fonts.Inter-Bold.ttf" />
+    <!-- Resmi logolar: GSB ve TSF (alt yazısı silinmiş taban; il adı çalışırken çizilir). -->
+    <EmbeddedResource Include="..\..\assets\logos\gsb.png" LogicalName="NotasyonOtomasyonu.App.logos.gsb.png" />
+    <EmbeddedResource Include="..\..\assets\logos\tsf_base.png" LogicalName="NotasyonOtomasyonu.App.logos.tsf_base.png" />
     <EmbeddedResource Include="..\..\assets\turnuva_sonu_raporu_sablon.docx">
       <LogicalName>NotasyonOtomasyonu.App.turnuva_sonu_raporu_sablon.docx</LogicalName>
     </EmbeddedResource>

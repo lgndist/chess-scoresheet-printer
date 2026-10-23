@@ -34,6 +34,8 @@ public sealed class BadgesForm : Form
     private readonly CheckBox _chkSimpleRoles = new() { Text = "Görevi sade yaz: Başhakem / Hakem", AutoSize = true };
     private static readonly string[] Sizes = { "85x54", "90x60", "95x135" };
     private readonly CheckBox _chkCrop = new() { Text = "Kesim (crop) işaretleri", AutoSize = true };
+    private readonly CheckBox _chkTsfLogo = new() { Text = "Logo seçilmezse TSF il logosu", AutoSize = true };
+    private Image? _tsfLogo;   // otomatik il logosu (özel logo yokken)
     private readonly PictureBox _picPreview = new() { SizeMode = PictureBoxSizeMode.Zoom, Dock = DockStyle.Fill };
     private readonly DataGridView _grid = new();
     private readonly Label _lblStatus = new() { AutoSize = true, ForeColor = Color.DimGray };
@@ -61,6 +63,10 @@ public sealed class BadgesForm : Form
         _chkCrop.Checked = Cfg.CropMarks;
         _cboSize.SelectedIndexChanged += (_, _) => { Cfg.Size = Sizes[Math.Max(0, _cboSize.SelectedIndex)]; _ctx.SaveConfig(); UpdateSummary(); UpdatePreview(); };
         _chkCrop.CheckedChanged += (_, _) => { Cfg.CropMarks = _chkCrop.Checked; _ctx.SaveConfig(); };
+        _chkTsfLogo.Checked = Cfg.AutoTsfLogo;
+        _chkTsfLogo.CheckedChanged += (_, _) => { Cfg.AutoTsfLogo = _chkTsfLogo.Checked; _ctx.SaveConfig(); LoadLogo(); UpdatePreview(); };
+        new ToolTip().SetToolTip(_chkTsfLogo, Branding.OfficialLogos.Caption(_ctx.Config.LogoProvince()) + " logosu (alt yayında il adı).");
+        FormClosed += (_, _) => _tsfLogo?.Dispose();
         LoadLogo();
 
         _btnLogo.Click += (_, _) => ChooseLogo();
@@ -85,6 +91,7 @@ public sealed class BadgesForm : Form
         logoBtns.Controls.AddRange(new Control[] { _btnLogo, _btnLogoClear });
         logoRow.Controls.AddRange(new Control[] { _picLogo, logoBtns });
         left.Controls.Add(logoRow);
+        left.Controls.Add(_chkTsfLogo);
         left.Controls.Add(Header("Kart ölçüsü"));
         left.Controls.Add(_cboSize);
         left.Controls.Add(_chkCrop);
@@ -298,14 +305,21 @@ public sealed class BadgesForm : Form
         catch (Exception ex) { MessageBox.Show(this, "Resim açılamadı: " + ex.Message, "Logo", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
     }
 
+    /// <summary>Seçilen logo; yoksa (seçenek açıksa) turnuva ilinin TSF logosu.</summary>
     private void LoadLogo()
     {
-        _picLogo.Image?.Dispose();
+        if (_picLogo.Image is { } old && old != _tsfLogo) old.Dispose();
         _picLogo.Image = null;
-        if (string.IsNullOrWhiteSpace(Cfg.LogoPath) || !File.Exists(Cfg.LogoPath)) return;
-        try { using var fs = File.OpenRead(Cfg.LogoPath); using var img = Image.FromStream(fs); _picLogo.Image = new Bitmap(img); }
-        catch { }
+        if (!string.IsNullOrWhiteSpace(Cfg.LogoPath) && File.Exists(Cfg.LogoPath))
+            try { using var fs = File.OpenRead(Cfg.LogoPath); using var img = Image.FromStream(fs); _picLogo.Image = new Bitmap(img); }
+            catch { }
+        if (_picLogo.Image is null && Cfg.AutoTsfLogo)
+            try { _picLogo.Image = _tsfLogo ??= Branding.OfficialLogos.Tsf(_ctx.Config.LogoProvince(), 600); }
+            catch { }
     }
+
+    /// <summary>Basılacak yedek logo: özel logo yokken TSF il logosu.</summary>
+    private Image? FallbackLogo => Cfg.AutoTsfLogo ? _tsfLogo : null;
 
     private void UpdatePreview()
     {
@@ -338,7 +352,7 @@ public sealed class BadgesForm : Form
 
     // ================= Çıktı =================
     private BadgePrinter NewPrinter(IEnumerable<BadgeSpec> specs)
-        => new(specs, Cfg.LogoPath, EventGrouping.BaseName(_ctx.EventName), Cfg.Size, Cfg.CropMarks);
+        => new(specs, Cfg.LogoPath, EventGrouping.BaseName(_ctx.EventName), Cfg.Size, Cfg.CropMarks, null, FallbackLogo);
 
     private BadgePrinter? Printer()
     {

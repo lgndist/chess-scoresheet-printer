@@ -17,21 +17,32 @@ public sealed class CardPrinter
     private readonly bool _filled;
     private readonly bool _fullWidth;
     private readonly float _bandPt;            // tüm kartlarda ortak kategori yazısı puntosu
+    private readonly CardBranding _branding;
     private Image? _logo;
+    private Image? _gsb, _tsf;
     private int _pageIndex;
 
     public CardPrinter(IEnumerable<CardSpec> cards, string? logoPath, string eventName, string? font = null, bool landscape = true,
-                       bool filled = false, bool fullWidth = false)
+                       bool filled = false, bool fullWidth = false, CardBranding? branding = null)
     {
         _filled = filled;
         _fullWidth = fullWidth;
+        _branding = branding ?? CardBranding.None;
         _pages = cards.SelectMany(c => Enumerable.Repeat(c, Math.Max(0, c.Copies))).ToList();
         _distinct = _pages.Distinct().ToList();
         _logoPath = !string.IsNullOrWhiteSpace(logoPath) && File.Exists(logoPath) ? logoPath : null;
         _eventName = eventName;
         _font = string.IsNullOrWhiteSpace(font) ? CardFonts.Default : font!;
-        _layout = new CardLayout(landscape);
+        _layout = CardLayout.For(landscape, ImageSize(_logoPath), fullWidth, _branding, eventName, _font);
         _bandPt = CommonBandPt(_layout, _pages.Select(p => p.Category), _font);
+    }
+
+    /// <summary>Resmin piksel boyutu (yalnız başlığı okunur); okunamazsa null.</summary>
+    public static SizeF? ImageSize(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
+        try { using var fs = File.OpenRead(path); using var img = Image.FromStream(fs, false, false); return new SizeF(img.Width, img.Height); }
+        catch { return null; }
     }
 
     public int PageCount => _pages.Count;
@@ -72,8 +83,14 @@ public sealed class CardPrinter
             // Afiş bir kez hedef boyuta küçültülür (önizlemede ekran, baskıda 300 dpi): her sayfada büyük
             // görseli yeniden ölçeklemek önizlemeyi çok yavaşlatıyordu.
             _logo = ScaledLogo(_logoPath, preview ? 120 : 300);
+            (_gsb, _tsf) = _branding.Load(preview ? 300 : 800);
         };
-        doc.EndPrint += (_, _) => { _logo?.Dispose(); _logo = null; _pageIndex = 0; };
+        doc.EndPrint += (_, _) =>
+        {
+            _logo?.Dispose(); _gsb?.Dispose(); _tsf?.Dispose();
+            _logo = _gsb = _tsf = null;
+            _pageIndex = 0;
+        };
         doc.PrintPage += OnPrintPage;
         return doc;
     }
@@ -126,7 +143,7 @@ public sealed class CardPrinter
         bool preview = (sender as PrintDocument)?.PrintController?.IsPreview == true;
         if (!preview) g.TranslateTransform(-e.PageSettings.HardMarginX / 100f * 72f, -e.PageSettings.HardMarginY / 100f * 72f);
 
-        if (_pageIndex < _active.Count) Draw(g, _layout, _active[_pageIndex], _logo, _eventName, _font, _filled, _fullWidth, _bandPt);
+        if (_pageIndex < _active.Count) Draw(g, _layout, _active[_pageIndex], _logo, _eventName, _font, _filled, _fullWidth, _bandPt, _branding, _gsb, _tsf);
         _pageIndex++;
         e.HasMorePages = _pageIndex < _active.Count;
     }
@@ -136,7 +153,7 @@ public sealed class CardPrinter
     /// <paramref name="filled"/>: false = beyaz zeminde tema renginde yazı, true = tema renginde zeminde beyaz yazı.
     /// </summary>
     public static void Draw(Graphics g, CardLayout layout, CardSpec card, Image? logo, string eventName, string? font, bool filled,
-                            bool fullWidth = false, float? bandPt = null)
+                            bool fullWidth = false, float? bandPt = null, CardBranding? branding = null, Image? gsb = null, Image? tsf = null)
     {
         var prevInterp = g.InterpolationMode;
         var prevSmooth = g.SmoothingMode;
@@ -146,11 +163,14 @@ public sealed class CardPrinter
         if (logo is not null)
             layout.DrawLogo(g, logo, fullWidth); // oran her iki modda da korunur
         else
-            CardLayout.DrawLines(g, CardLayout.Fit(eventName.ToUpper(new System.Globalization.CultureInfo("tr-TR")), layout.LogoRect, 60, font, 12, 4),
-                                 layout.LogoRect, card.Color, font);
+            layout.DrawEventName(g, eventName, card.Color, font);
 
         if (filled)
             using (var b = new SolidBrush(card.Color)) g.FillRectangle(b, layout.BandRect);
+        else if (logo is null)
+            using (var pen = new Pen(card.Color, 2.5f)) // başlık ile kategori adını ayıran ince çizgi
+                g.DrawLine(pen, CardLayout.Margin, layout.BandRect.Top, layout.PageW - CardLayout.Margin, layout.BandRect.Top);
+        branding?.Draw(g, layout.Logos, gsb, tsf); // afiş/bant üstünde; yazılar logolardan kaçar
         var box = layout.BandTextRect;
         var fit = bandPt is float pt ? CardLayout.FitAt(card.Category, box, pt, font, MaxBandLines)
                                      : CardLayout.Fit(card.Category, box, MaxBandPt, font, 14, MaxBandLines);
@@ -170,6 +190,9 @@ public sealed class CardPrinter
     public void SavePdf(string path)
     {
         using var logo = LoadLogo(_logoPath);
-        GdiPdf.Save(path, _pages, _layout.PageW, _layout.PageH, (g, card) => Draw(g, _layout, card, logo, _eventName, _font, _filled, _fullWidth, _bandPt));
+        var (gsb, tsf) = _branding.Load(800);
+        using (gsb) using (tsf)
+            GdiPdf.Save(path, _pages, _layout.PageW, _layout.PageH,
+                        (g, card) => Draw(g, _layout, card, logo, _eventName, _font, _filled, _fullWidth, _bandPt, _branding, gsb, tsf));
     }
 }

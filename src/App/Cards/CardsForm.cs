@@ -50,6 +50,9 @@ public sealed class CardsForm : Form
     private readonly CheckBox _chkFullWidth = new() { Text = "Afişi tam genişliğe yay (kenardan kenara)", AutoSize = true };
     private readonly RadioButton _rbTextColored = new() { Text = "Yazı renkli / beyaz zemin", AutoSize = true };
     private readonly RadioButton _rbFilled = new() { Text = "Zemin renkli / beyaz yazı", AutoSize = true };
+    private readonly Label _lblLogos = new() { AutoSize = false, Width = 280, Height = 36, ForeColor = Color.DimGray };
+    private readonly Button _btnDesign = new() { Text = "🎨 Kart tasarımı (logo yerleşimi)…", AutoSize = true, Height = 32 };
+    private Image? _gsbImg, _tsfImg;   // önizlemede kullanılan resmi logolar
 
     public CardsForm(CardsContext ctx)
     {
@@ -57,8 +60,8 @@ public sealed class CardsForm : Form
         Text = "Kategori Masa Kartları — " + EventGrouping.BaseName(ctx.EventName);
         Font = new Font("Segoe UI", 9.75f);
         StartPosition = FormStartPosition.CenterParent;
-        Size = new Size(1000, 720);
-        MinimumSize = new Size(820, 600);
+        Size = new Size(1000, 800);
+        MinimumSize = new Size(820, 660);
         BackColor = Color.FromArgb(250, 250, 247);
 
         BuildLayout();
@@ -69,6 +72,7 @@ public sealed class CardsForm : Form
         _chkFullWidth.Checked = Cfg.LogoFullWidth;
         (Cfg.Landscape ? _rbLandscape : _rbPortrait).Checked = true;
         (Cfg.FilledBand ? _rbFilled : _rbTextColored).Checked = true;
+        LoadOfficialLogos();
 
         LoadLogo();
         FillGrid();
@@ -80,6 +84,11 @@ public sealed class CardsForm : Form
         _rbLandscape.CheckedChanged += (_, _) => { Cfg.Landscape = _rbLandscape.Checked; _ctx.SaveConfig(); UpdatePreview(); };
         _rbFilled.CheckedChanged += (_, _) => { Cfg.FilledBand = _rbFilled.Checked; _ctx.SaveConfig(); UpdatePreview(); };
         _chkFullWidth.CheckedChanged += (_, _) => { Cfg.LogoFullWidth = _chkFullWidth.Checked; _ctx.SaveConfig(); UpdatePreview(); };
+        _btnDesign.Click += (_, _) => OpenDesigner();
+        _picPreview.DoubleClick += (_, _) => OpenDesigner();
+        _picPreview.Cursor = Cursors.Hand;
+        new ToolTip().SetToolTip(_picPreview, "Logoları yerleştirmek için çift tıklayın (kart tasarımı).");
+        FormClosed += (_, _) => { _gsbImg?.Dispose(); _tsfImg?.Dispose(); };
         _btnLogo.Click += (_, _) => ChooseLogo();
         _btnCrop.Click += (_, _) => CropLogo();
         _btnLogoClear.Click += (_, _) => { Cfg.LogoPath = null; Cfg.LogoSourcePath = null; _ctx.SaveConfig(); LoadLogo(); UpdatePreview(); };
@@ -112,9 +121,12 @@ public sealed class CardsForm : Form
         left.Controls.Add(_chkFullWidth);
         left.Controls.Add(new Label
         {
-            AutoSize = false, Width = 280, Height = 54, ForeColor = Color.Gray,
-            Text = "Oranı korunarak basılır; \"Kırp\" ile yuvaya göre kırpabilirsiniz. Seçilmezse turnuva adı yazılır."
+            AutoSize = false, Width = 280, Height = 38, ForeColor = Color.Gray,
+            Text = "Oranı korunur, \"Kırp\" ile kırpılır. Afiş yoksa turnuva adı yazılır."
         });
+        left.Controls.Add(Header("Resmi logolar (GSB + TSF il)", 4));
+        left.Controls.Add(_lblLogos);
+        left.Controls.Add(_btnDesign);
         var fontRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 4, 0, 0) };
         fontRow.Controls.Add(new Label { Text = "Yazı tipi:", AutoSize = true, Margin = new Padding(0, 7, 6, 0) });
         fontRow.Controls.Add(_cboFont);
@@ -195,7 +207,7 @@ public sealed class CardsForm : Form
         bottom.Controls.Add(bl);
         bottom.Controls.Add(br);
 
-        foreach (var b in new[] { _btnLogo, _btnCrop, _btnLogoClear, _btnPdf, _btnPrint, _btnAll, _btnNone }) Style(b);
+        foreach (var b in new[] { _btnDesign, _btnLogo, _btnCrop, _btnLogoClear, _btnPdf, _btnPrint, _btnAll, _btnNone }) Style(b);
         _btnPrint.Font = new Font("Segoe UI", 10.5f, FontStyle.Bold);
 
         Controls.Add(gridPanel);
@@ -385,6 +397,47 @@ public sealed class CardsForm : Form
         _cboFont.SelectedItem = select is not null && _cboFont.Items.Contains(select) ? select : CardFonts.Default;
     }
 
+    // ================= Resmi logolar =================
+    /// <summary>Logodaki il: Ayarlar'daki il (genel TSF logosu seçiliyse ya da il yoksa null).</summary>
+    private string? LogoProvince() => _ctx.Config.LogoProvince();
+
+    /// <summary>Basılacak resmi logolar ve yerleşimleri (kart tasarımında kaydedilen).</summary>
+    private CardBranding Branding() => CardBranding.From(Cfg, LogoProvince());
+
+    /// <summary>Logo durumunun tek satırlık özeti (masa kartları penceresinde).</summary>
+    private void UpdateLogoSummary()
+    {
+        var b = Branding();
+        var parts = new List<string>();
+        if (b.Gsb) parts.Add("GSB");
+        if (b.Tsf) parts.Add("TSF " + (b.Province ?? "(genel)"));
+        _lblLogos.Text = parts.Count == 0 ? "Logo basılmıyor."
+            : string.Join(" + ", parts) + " • " + CardBranding.Label(b.EffectiveMode(_picLogo.Image is not null), b.Single) + (b.Mode == CardBranding.Auto ? " (otomatik)" : "");
+    }
+
+    private void OpenDesigner()
+    {
+        var row = _grid.SelectedRows.Count > 0 ? _grid.SelectedRows[0] : (_grid.Rows.Count > 0 ? _grid.Rows[0] : null);
+        var sample = new CardSpec(row?.Cells["Kategori"].Value?.ToString() ?? "KATEGORİ",
+                                  CardLayout.ParseColor(row?.Cells["Renk"].Value?.ToString(), Color.Gray), 1);
+        var ctx = new CardDesignContext(_picLogo.Image, EventGrouping.BaseName(_ctx.EventName), _cboFont.SelectedItem as string,
+                                        _rbLandscape.Checked, _rbFilled.Checked, _chkFullWidth.Checked, sample,
+                                        Selected().Select(c => c.Category).ToList(), LogoProvince());
+        using var f = new CardDesignForm(ctx, Cfg) { Icon = Icon };
+        if (f.ShowDialog(this) != DialogResult.OK) return;
+        _ctx.SaveConfig();
+        LoadOfficialLogos();
+        UpdatePreview();
+    }
+
+    private void LoadOfficialLogos()
+    {
+        _gsbImg?.Dispose(); _tsfImg?.Dispose();
+        (_gsbImg, _tsfImg) = (null, null);
+        try { (_gsbImg, _tsfImg) = Branding().Load(300); }
+        catch (Exception ex) { _lblStatus.Text = "Logo yüklenemedi: " + ex.Message; }
+    }
+
     private static Bitmap? LoadBitmap(string path)
     {
         try { using var fs = File.OpenRead(path); using var img = Image.FromStream(fs); return new Bitmap(img); } // dosyayı kilitlemeden
@@ -406,7 +459,11 @@ public sealed class CardsForm : Form
         if (row is null) return;
         var name = row.Cells["Kategori"].Value?.ToString() ?? "";
         var color = CardLayout.ParseColor(row.Cells["Renk"].Value?.ToString(), Color.Gray);
-        var layout = new CardLayout(_rbLandscape.Checked);
+        var poster = _picLogo.Image is { } img ? new SizeF(img.Width, img.Height) : (SizeF?)null;
+        var font = _cboFont.SelectedItem as string;
+        var eventName = EventGrouping.BaseName(_ctx.EventName);
+        var branding = Branding();
+        var layout = CardLayout.For(_rbLandscape.Checked, poster, _chkFullWidth.Checked, branding, eventName, font);
         const float scale = 0.6f; // 842×595 pt → ~505×357 px
         var bmp = new Bitmap((int)(layout.PageW * scale), (int)(layout.PageH * scale));
         using (var g = Graphics.FromImage(bmp))
@@ -418,15 +475,16 @@ public sealed class CardsForm : Form
             g.ScaleTransform(k, k);
             // Önizleme de baskıdaki ortak puntoyu kullanır (seçili tüm kategorilerin sığdığı en büyük)
             var names = Selected().Select(c => c.Category).Append(name);
-            var pt = CardPrinter.CommonBandPt(layout, names, _cboFont.SelectedItem as string);
+            var pt = CardPrinter.CommonBandPt(layout, names, font);
             CardPrinter.Draw(g, layout, new CardSpec(name, color, 1), _picLogo.Image,
-                             EventGrouping.BaseName(_ctx.EventName), _cboFont.SelectedItem as string, _rbFilled.Checked, _chkFullWidth.Checked, pt);
+                             eventName, font, _rbFilled.Checked, _chkFullWidth.Checked, pt, branding, _gsbImg, _tsfImg);
             using var pen = new Pen(Color.FromArgb(200, 200, 200), 1f / k);
             g.DrawRectangle(pen, 0, 0, layout.PageW, layout.PageH); // beyaz zeminde kart kenarı görünsün
         }
         var old = _picPreview.Image;
         _picPreview.Image = bmp;
         old?.Dispose();
+        UpdateLogoSummary();
     }
 
     // ================= Çıktı =================
@@ -436,7 +494,7 @@ public sealed class CardsForm : Form
         var cards = Selected().ToList();
         if (cards.Count == 0) { _lblStatus.Text = "Basılacak kart seçilmedi."; return null; }
         return new CardPrinter(cards, Cfg.LogoPath, EventGrouping.BaseName(_ctx.EventName),
-                               _cboFont.SelectedItem as string, _rbLandscape.Checked, _rbFilled.Checked, _chkFullWidth.Checked);
+                               _cboFont.SelectedItem as string, _rbLandscape.Checked, _rbFilled.Checked, _chkFullWidth.Checked, Branding());
     }
 
     private void Print()

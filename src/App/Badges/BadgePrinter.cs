@@ -30,9 +30,12 @@ public sealed class BadgePrinter
     public int Rows { get; }
     private int _pageIndex;
     private readonly Dictionary<string, Image?> _images = new();
+    private readonly Image? _fallbackLogo;     // logo dosyası yoksa (TSF il logosu)
 
-    public BadgePrinter(IEnumerable<BadgeSpec> badges, string? logoPath, string eventName, string size = "85x54", bool cropMarks = true, string? font = null)
+    public BadgePrinter(IEnumerable<BadgeSpec> badges, string? logoPath, string eventName, string size = "85x54", bool cropMarks = true, string? font = null,
+                        Image? fallbackLogo = null)
     {
+        _fallbackLogo = fallbackLogo;
         _cards = badges.SelectMany(b => Enumerable.Repeat(b, Math.Max(0, b.Copies))).ToList();
         _logoPath = !string.IsNullOrWhiteSpace(logoPath) && File.Exists(logoPath) ? logoPath : null;
         _eventName = eventName;
@@ -123,7 +126,7 @@ public sealed class BadgePrinter
         {
             int r = i / Cols, c = i % Cols;
             var rect = new RectangleF(o.X + c * CardW, o.Y + r * CardH, CardW, CardH);
-            DrawCard(g, rect, _cards[start + i], Img(_logoPath), Img(_cards[start + i].PhotoPath), _eventName, _font);
+            DrawCard(g, rect, _cards[start + i], Img(_logoPath) ?? _fallbackLogo, Img(_cards[start + i].PhotoPath), _eventName, _font);
         }
         DrawCutLines(g, o, Math.Min(Rows, (Math.Min(PerPage, _cards.Count - start) + Cols - 1) / Cols));
     }

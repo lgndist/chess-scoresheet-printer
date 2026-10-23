@@ -22,6 +22,9 @@ public sealed class SettingsForm : Form
     private readonly ComboBox _province = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly TextBox _tsfSite = new();
     private readonly PrinterSettingsPanel _printerPanel = new(RW);
+    private readonly PictureBox _provinceLogo = new() { SizeMode = PictureBoxSizeMode.Zoom, Size = new System.Drawing.Size(58, 58) };
+    private readonly ComboBox _logoKind = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly Action<IWin32Window>? _openRegistration;
     private const string NoProvinceItem = "(seçilmedi)";
 
     private const string ActiveTemplateItem = "(etkin şablon)";
@@ -32,9 +35,10 @@ public sealed class SettingsForm : Form
         ("Team", "Takım turnuvası:"),
     };
 
-    public SettingsForm(AppConfig cfg)
+    public SettingsForm(AppConfig cfg, Action<IWin32Window>? openRegistration = null)
     {
         _cfg = cfg;
+        _openRegistration = openRegistration;
 
         Text = "⚙ Ayarlar";
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -202,14 +206,67 @@ public sealed class SettingsForm : Form
         y += 16;
         Controls.Add(Note("Program açılınca bu ilin en güncel turnuvası açılır. Yönerge/Tutanak penceresi ilin TSF sitesindeki " +
                           "yönergeyi bulup bilgilerini (son başvuru, iletişim, program saatleri) kullanır.", y, 54));
-        y += 62;
-        _province.SelectedIndexChanged += (_, _) => _tsfSite.Text = TsfSites.SiteFor(_province.SelectedItem as string, _cfg.TsfSites) ?? "";
+        y += 58;
+        // İlin TSF logosu (ana ekranın köşesinde ve masa kartlarında kullanılır)
+        _provinceLogo.Location = new System.Drawing.Point(RX, y);
+        Controls.Add(_provinceLogo);
+        // Logo: seçili ilin TSF logosu ya da genel TSF logosu (ana ekran köşesi, masa ve yaka kartları)
+        Controls.Add(new Label { Text = "Logo:", AutoSize = true, Location = new System.Drawing.Point(RX + 68, y + 4) });
+        _logoKind.SetBounds(RX + 134, y, RW - 134, 25);
+        Controls.Add(_logoKind);
+        Controls.Add(new Label
+        {
+            AutoSize = false, Size = new System.Drawing.Size(RW - 68, 30), Location = new System.Drawing.Point(RX + 68, y + 30),
+            ForeColor = System.Drawing.Color.Gray,
+            Text = "Ana ekran köşesi, masa ve yaka kartları için."
+        });
+        y += 66;
+        // Kayıt listesi turnuva açılınca kendiliğinden alınır; elle düzeltme gerekirse buradan.
+        var btnReg = new Button
+        {
+            Text = "📋 Kayıt listesi ve sporcu illeri…", Size = new System.Drawing.Size(RW, 32),
+            Location = new System.Drawing.Point(RX, y), Enabled = _openRegistration is not null
+        };
+        btnReg.Click += (_, _) => _openRegistration?.Invoke(this);
+        new ToolTip().SetToolTip(btnReg, "Açık turnuvanın TSF kayıt listesi kendiliğinden alınır. Başka bir kayıt formunu seçmek, " +
+                                         "listeyi yenilemek ya da bir sporcunun ilini elle düzeltmek için açın.");
+        Controls.Add(btnReg);
+        y += 44;
+        _province.SelectedIndexChanged += (_, _) =>
+        {
+            _tsfSite.Text = TsfSites.SiteFor(_province.SelectedItem as string, _cfg.TsfSites) ?? "";
+            FillLogoKinds();
+            ShowProvinceLogo();
+        };
+        _logoKind.SelectedIndexChanged += (_, _) => ShowProvinceLogo();
 
         Controls.Add(Section("Yazıcı", y)); y += 24;
         _printerPanel.Location = new System.Drawing.Point(RX, y);
         Controls.Add(_printerPanel);
         y += _printerPanel.GetPreferredSize(new System.Drawing.Size(RW, 0)).Height + 8;
         return y;
+    }
+
+    /// <summary>Logo seçenekleri: seçili ilin TSF logosu (il varsa) ve TSF genel logosu; seçim korunur.</summary>
+    private void FillLogoKinds()
+    {
+        bool general = _logoKind.Items.Count == 2 ? _logoKind.SelectedIndex == 1 : _cfg.GeneralTsfLogo;
+        var sel = _province.SelectedItem as string;
+        bool hasProvince = sel is not null && sel != NoProvinceItem;
+        _logoKind.Items.Clear();
+        if (hasProvince) _logoKind.Items.Add($"TSF {sel} il logosu");
+        _logoKind.Items.Add("TSF genel logosu");
+        _logoKind.SelectedIndex = hasProvince && !general ? 0 : _logoKind.Items.Count - 1;
+    }
+
+    private void ShowProvinceLogo()
+    {
+        var sel = _province.SelectedItem as string;
+        bool general = _logoKind.Items.Count < 2 || _logoKind.SelectedIndex == 1;
+        var old = _provinceLogo.Image;
+        try { _provinceLogo.Image = Branding.OfficialLogos.Tsf(general || sel == NoProvinceItem ? null : sel, 174); }
+        catch { _provinceLogo.Image = null; }
+        old?.Dispose();
     }
 
     private static NumericUpDown MmBox() => new()
@@ -270,6 +327,8 @@ public sealed class SettingsForm : Form
 
         _province.SelectedItem = _province.Items.Contains(_cfg.Online.Province) ? _cfg.Online.Province : NoProvinceItem;
         _tsfSite.Text = TsfSites.SiteFor(_province.SelectedItem as string, _cfg.TsfSites) ?? "";
+        FillLogoKinds();
+        ShowProvinceLogo();
         _printerPanel.LoadFrom(_cfg.Printing);
         FillSystemCombos();
     }
@@ -284,6 +343,8 @@ public sealed class SettingsForm : Form
         _cfg.Layout.PrintOffsetXmm = (double)_offX.Value;
         _cfg.Layout.PrintOffsetYmm = (double)_offY.Value;
 
+        // İl seçiliyken ikinci seçenek genel logodur; il yokken tek seçenek (genel) — o durumda tercih korunur.
+        if (_logoKind.Items.Count == 2) _cfg.GeneralTsfLogo = _logoKind.SelectedIndex == 1;
         if (_province.SelectedItem is string sel)
         {
             var prov = sel == NoProvinceItem ? Provinces.All : sel;

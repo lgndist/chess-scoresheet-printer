@@ -52,6 +52,15 @@ public sealed class AppConfig
     /// <summary>Önceki turnuvalarda öğrenilen sporcu illeri (katlanmış ad → il); kayıt listesi yoksa önerilir.</summary>
     public Dictionary<string, string> PlayerProvinces { get; set; } = new();
 
+    /// <summary>
+    /// Logolarda (ana ekran köşesi, masa ve yaka kartları) TSF genel logosu (alt yazısı "1991");
+    /// kapalıysa Ayarlar'daki varsayılan ilin TSF logosu.
+    /// </summary>
+    public bool GeneralTsfLogo { get; set; }
+
+    /// <summary>Logolardaki il: Ayarlar'daki varsayılan il; genel logo seçiliyse ya da il seçilmemişse null (genel TSF logosu).</summary>
+    public string? LogoProvince() => GeneralTsfLogo ? null : Provinces.Normalize(Online.Province);
+
     /// <summary>Kategori masa kartları: afiş/logo ve kategori renkleri (kategori tnr → "#RRGGBB").</summary>
     public CardConfig Cards { get; set; } = new();
 
@@ -176,6 +185,27 @@ public sealed class CardConfig
     /// <summary>Afiş üst alanın tüm genişliğine (kenardan kenara) yayılsın; oran korunur, taşan kısım kırpılır.</summary>
     public bool LogoFullWidth { get; set; }
 
+    /// <summary>Kartta T.C. Gençlik ve Spor Bakanlığı logosu.</summary>
+    public bool ShowGsbLogo { get; set; } = true;
+
+    /// <summary>Kartta TSF il logosu.</summary>
+    public bool ShowTsfLogo { get; set; } = true;
+
+    /// <summary>
+    /// Logo yerleşimi: "Auto" (afiş yoksa başlıkta iki yanda, afiş varsa afiş bitişinde ortada),
+    /// "HeaderSides", "SeamCenter", "SeamSides", "TopCorners", "BottomCorners" ya da "Custom" (elle taşınmış).
+    /// </summary>
+    public string LogoLayout { get; set; } = "Auto";
+
+    /// <summary>Hazır yerleşimlerde logo boyutu çarpanı (0,5–1,6).</summary>
+    public double LogoScale { get; set; } = 1.0;
+
+    /// <summary>Logoların arkasına beyaz zemin (afiş ya da renkli bant üstünde okunsun).</summary>
+    public bool LogoBacking { get; set; } = true;
+
+    /// <summary>Elle yerleşim: "gsb:L" / "tsf:P" (logo:yön) → sayfaya oranla merkez ve yükseklik.</summary>
+    public Dictionary<string, LogoSpot> LogoSpots { get; set; } = new();
+
     /// <summary>Yazıcıda birbirinden net ayrılan temel renkler (otomatik atama sırası).</summary>
     public static readonly string[] Palette =
     {
@@ -194,6 +224,14 @@ public sealed class CardConfig
         CategoryColors[key] = pick;
         return pick;
     }
+}
+
+/// <summary>Elle yerleştirilmiş bir logonun yeri: merkez (X: sayfa genişliğine, Y: yüksekliğine oran) ve yükseklik (sayfa yüksekliğine oran).</summary>
+public sealed class LogoSpot
+{
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double H { get; set; }
 }
 
 public sealed class TournamentConfig
@@ -287,8 +325,11 @@ public sealed class LayoutConfig
 /// <summary>Hakem yaka kartı ayarları.</summary>
 public sealed class BadgeConfig
 {
-    /// <summary>Kartın sol üstündeki resmi logo (boş = gömülü TSF/uygulama logosu yok, yalnız yazı).</summary>
+    /// <summary>Kartın sol üstündeki resmi logo (boş = aşağıdaki TSF il logosu ya da yalnız yazı).</summary>
     public string? LogoPath { get; set; }
+
+    /// <summary>Logo seçilmemişse turnuva ilinin TSF logosu basılsın.</summary>
+    public bool AutoTsfLogo { get; set; } = true;
 
     /// <summary>Kart ölçüsü: "85x54" (kredi kartı), "90x60" ya da büyük dikey "95x135" milimetre.</summary>
     public string Size { get; set; } = "85x54";

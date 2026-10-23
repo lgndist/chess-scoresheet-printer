@@ -13,15 +13,12 @@ public partial class MainForm
     private Button? _btnReport;
     private Button? _btnCards;
     private Button? _btnBadges;
-    private Button? _btnRegistration;
 
     private void InitToolButtons()
     {
         _btnReport = HeaderButton("📄 Yönerge / Tutanak", "Turnuva yönergesi, raporu ya da teknik toplantı tutanağını chess-results ve TSF il sitesindeki yönergeyle doldurup PDF olarak kaydet.");
         _btnCards = HeaderButton("🏷 Masa Kartları", "Kategori masa kartlarını (A4 yatay, kategori renginde) bas.");
         _btnBadges = HeaderButton("🪪 Yaka Kartları", "Hakem yaka kartlarını (85×54 / 90×60 mm, A4'e dizili, kesim işaretli) bas.");
-        _btnRegistration = HeaderButton("📋 Kayıt / İl", "TSF il sitesindeki turnuva kayıt listesini (turnuva başında bir kez) alıp sporcuların illerini bul; notasyondaki İl kutusuna basılır.");
-        _btnRegistration.Click += (_, _) => OpenRegistration();
         _btnReport.Click += (_, _) => OpenReport();
         _btnCards.Click += (_, _) => OpenCards();
         _btnBadges.Click += (_, _) => OpenBadges();
@@ -52,7 +49,7 @@ public partial class MainForm
     /// <summary>Ayarlar'ın soluna araç butonlarını dizer (PositionHeader'dan çağrılır).</summary>
     private int PositionToolButtons(int right)
     {
-        foreach (var b in new[] { _btnBadges, _btnCards, _btnReport, _btnRegistration })
+        foreach (var b in new[] { _btnBadges, _btnCards, _btnReport })
         {
             if (b is null) continue;
             b.Top = (pnlHeader.Height - b.Height) / 2;
@@ -64,11 +61,11 @@ public partial class MainForm
     }
 
     /// <summary>Etkinliğin kategorileri; kategori menüsü yoksa etkinliğin kendisi tek kategori sayılır.</summary>
-    private List<CategoryRef>? ToolCategories()
+    private List<CategoryRef>? ToolCategories(IWin32Window? owner = null)
     {
         if (!rbOnline.Checked || _eventTnr is not int tnr)
         {
-            MessageBox.Show(this, "Önce chess-results'tan bir turnuva seçin.", "Turnuva seçilmedi",
+            MessageBox.Show(owner ?? this, "Önce chess-results'tan bir turnuva seçin.", "Turnuva seçilmedi",
                 MessageBoxButtons.OK, MessageBoxIcon.Information);
             return null;
         }
@@ -115,24 +112,29 @@ public partial class MainForm
         f.ShowDialog(this);
     }
 
-    private void OpenRegistration()
+    /// <summary>
+    /// Kayıt listesi ve iller penceresi. Liste turnuva açılınca kendiliğinden alındığından ana ekranda
+    /// düğmesi yok; Ayarlar → Bölge'den ya da listedeki İl sütununa çift tıklayarak açılır.
+    /// </summary>
+    private void OpenRegistration(IWin32Window? owner = null)
     {
+        owner ??= this;
         if (IsTsfEvent && _config.Registrations.GetValueOrDefault(_eventTnr!.Value.ToString()) is { } treg)
         {
-            MessageBox.Show(this,
+            MessageBox.Show(owner,
                 $"Bu turnuvanın TSF kayıt listesi alındı: {treg.Entries.Count} sporcu ({treg.FetchedAt:dd.MM.yyyy HH:mm}).\n\n" +
                 string.Join("\n", RegistrationCategories.Counts(treg).Select(c => $"• {c.Name}: {c.Count} sporcu → {c.Boards} masa")) +
                 "\n\nSporcular chess-results'taki eşleştirmeyle turnuva yayımlanınca eşlenir; iller notasyona o zaman basılır.",
                 "Kayıt listesi", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
-        var cats = ToolCategories();
+        var cats = ToolCategories(owner);
         if (cats is null) return;
         UpdateConfigFromUi();
         var ctx = new RegistrationContext(_online, _eventTnr!.Value, CurrentEventName(), cats, CurrentProvince(),
             _config, () => _config.Save(_configPath));
         using var f = new RegistrationForm(ctx) { Icon = Icon };
-        f.ShowDialog(this);
+        f.ShowDialog(owner);
         ShowPairings(rbOnline.Checked ? _syncedTournament : _fileTournament); // listedeki İl sütunu güncellensin
     }
 

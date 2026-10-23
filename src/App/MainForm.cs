@@ -81,11 +81,18 @@ public partial class MainForm : Form
         };
         dgvPairings.CellValueChanged += (_, e) => { if (e.ColumnIndex == 0) UpdateSelectionSummary(); };
         dgvPairings.KeyDown += dgvPairings_KeyDown;
+        // İl sütununa çift tıklama: kayıt listesi / il düzeltme penceresi
+        dgvPairings.CellDoubleClick += (_, e) =>
+        {
+            if (e.RowIndex >= 0 && e.ColumnIndex >= 0 && dgvPairings.Columns[e.ColumnIndex].Name is "colWIl" or "colBIl")
+                OpenRegistration();
+        };
         ShowPairings(null);
 
         ApplyTheme(); // genel görsel cila (hover/flat, başlıklar, palet)
         ComboKeySearch.AttachAll(this); // il/turnuva listelerinde harfle seçim (I → Iğdır, Isparta …)
         UpdatePrintButtonsForSilent();
+        UpdateProvinceLogo();
 
         // İlk açılışta: hatırlanan turnuva varsa otomatik yükle + eşleştirmeleri çek.
         Shown += MainForm_Shown;
@@ -169,9 +176,36 @@ public partial class MainForm : Form
         try
         {
             using var png = asm.GetManifestResourceStream("NotasyonOtomasyonu.App.logo.png");
-            if (png is not null) pbLogo.Image = System.Drawing.Image.FromStream(png);
+            if (png is not null) pbLogo.Image = _appLogo = System.Drawing.Image.FromStream(png);
         }
         catch { /* logo yoksa boş */ }
+        pbLogo.SetBounds(8, 5, 46, 46);
+        _logoTip.SetToolTip(pbLogo, "Notasyon Kâğıdı Yazdırıcı");
+    }
+
+    private System.Drawing.Image? _appLogo;
+    private readonly ToolTip _logoTip = new();
+    private string? _logoProvince;
+
+    /// <summary>
+    /// Başlıktaki logo: Ayarlar'daki ilin TSF logosu; Ayarlar'da "TSF genel logosu" seçiliyse genel TSF
+    /// logosu; il seçilmemişse uygulama logosu.
+    /// </summary>
+    private void UpdateProvinceLogo()
+    {
+        var prov = _config.LogoProvince();
+        bool general = prov is null && _config.GeneralTsfLogo;
+        string key = prov ?? (general ? "(genel)" : "");
+        if (key == _logoProvince && pbLogo.Image is not null) return;
+        _logoProvince = key;
+        var old = pbLogo.Image;
+        try
+        {
+            pbLogo.Image = prov is null && !general ? _appLogo : Branding.OfficialLogos.Tsf(prov, 138); // 46 px × 3 (yüksek DPI)
+            _logoTip.SetToolTip(pbLogo, prov is null && !general ? "Notasyon Kâğıdı Yazdırıcı" : Branding.OfficialLogos.Caption(prov));
+        }
+        catch { pbLogo.Image = _appLogo; }
+        if (old is not null && old != _appLogo && old != pbLogo.Image) old.Dispose();
     }
 
     private async void MainForm_Shown(object? sender, EventArgs e)
@@ -1258,9 +1292,10 @@ public partial class MainForm : Form
     private void btnSettings_Click(object? sender, EventArgs e)
     {
         UpdateConfigFromUi();
-        using var dlg = new SettingsForm(_config);
+        using var dlg = new SettingsForm(_config, owner => OpenRegistration(owner));
         if (dlg.ShowDialog(this) == DialogResult.OK)
         {
+            UpdateProvinceLogo();
             Overlay.PrintRouter.Config = _config.Printing;
             UpdatePrintButtonsForSilent();
             if (HasDefaultProvince && !Equals(cboProvince.SelectedItem, _config.Online.Province))

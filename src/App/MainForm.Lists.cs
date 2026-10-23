@@ -58,7 +58,10 @@ public partial class MainForm
         _listTip.SetToolTip(_btnGridList, "Listede görünen kategori ve turun eşleştirme ya da sonuç listesini A4 olarak bas (salon panosu için).");
 
         foreach (var name in new[] { "colWIl", "colBIl" })
+        {
             dgvPairings.Columns[name]!.DefaultCellStyle.ForeColor = Color.DimGray;
+            dgvPairings.Columns[name]!.ToolTipText = "TSF kayıt listesinden kendiliğinden gelir. Düzeltmek için çift tıklayın.";
+        }
     }
 
     private Label SmallLabel(string text) => new()
