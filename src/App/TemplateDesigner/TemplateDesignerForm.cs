@@ -51,6 +51,7 @@ public sealed class TemplateDesignerForm : Form
         BackColor = Color.FromArgb(245, 245, 240);
         Font = new Font("Segoe UI", 9F);
         ClientSize = new Size(740, 660);
+        this.FitToScreen(); // küçük ekranda / yüksek ölçekte taşmasın
 
         _canvas.Location = new Point(12, 12);
         _canvas.BackgroundImageLayout = ImageLayout.Stretch;
@@ -266,7 +267,8 @@ public sealed class TemplateDesignerForm : Form
         {
             using (var img = Image.FromFile(dlg.FileName))
                 _canvas.BackgroundImage = new Bitmap(img); // dosyayı kilitleme
-            _tpl.BackgroundImagePath = dlg.FileName;
+            // Kopyası veri klasörüne alınır: asıl dosya silinse ya da taşınsa da şablon bozulmasın.
+            _tpl.BackgroundImagePath = AppPaths.KeepCopy(dlg.FileName);
         }
         catch (Exception ex)
         {

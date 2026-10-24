@@ -132,7 +132,10 @@ public sealed class AppConfig
         catch { return null; }
     }
 
-    /// <summary>Diske kaydet (hata olursa sessizce yutulur, çökme yok).</summary>
+    /// <summary>Son kaydın hatası (başarılıysa null): kullanıcıya bir kez söylenir, ayarlar sessizce kaybolmasın.</summary>
+    public static string? LastSaveError { get; private set; }
+
+    /// <summary>Diske kaydet (hata olursa yutulur, çökme yok; hata <see cref="LastSaveError"/>'da).</summary>
     public void Save(string path)
     {
         try
@@ -147,8 +150,9 @@ public sealed class AppConfig
             File.WriteAllText(tmp, json);
             if (File.Exists(path)) File.Replace(tmp, path, path + ".bak", ignoreMetadataErrors: true);
             else File.Move(tmp, path);
+            LastSaveError = null;
         }
-        catch { /* config kaydı kritik değil */ }
+        catch (Exception ex) { LastSaveError = ex.Message; }
     }
 
     /// <summary>Config'te tanımlı olmayan eşleme anahtarlarını varsayılanlardan tamamla.</summary>

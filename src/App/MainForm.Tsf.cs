@@ -200,7 +200,7 @@ public partial class MainForm
             _config.Online.SelectedTnr = tnr;
             _config.Online.SelectedTournamentName = name;
             ShowTournamentInCombo(tnr, name);
-            _config.Save(_configPath);
+            SaveConfig();
 
             _syncedTournament = null;
             ShowPairings(null);

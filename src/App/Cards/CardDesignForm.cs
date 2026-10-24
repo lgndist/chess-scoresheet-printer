@@ -60,6 +60,7 @@ public sealed class CardDesignForm : Form
         StartPosition = FormStartPosition.CenterParent;
         Size = new Size(1180, 760);
         MinimumSize = new Size(960, 640);
+        this.FitToScreen(); // küçük ekranda / yüksek ölçekte taşmasın
         BackColor = Color.FromArgb(250, 250, 247);
         KeyPreview = true;
 

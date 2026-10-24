@@ -37,7 +37,7 @@ public sealed class ArbiterSheetsForm : Form
     private readonly Dictionary<int, ArbiterSheet?> _sheets = new();   // kategori tnr → yüklenen kağıt
     private readonly Dictionary<int, List<ArbiterSheet>> _rounds = new();  // döner kategori → bütün turlar
     private readonly CheckBox _chkAllRounds = new() { Text = "Döner (Berger) kategorilerde bütün turlar (masa numaraları değişmez)", AutoSize = true };
-    private readonly ComboBox _cboPenalty = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 420 };
+    private readonly ComboBox _cboPenalty = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 400 };
     private readonly CheckBox _chkPenaltyOnly = new() { Text = "Yalnız ceza formu (eşleştirme kağıtları olmadan)", AutoSize = true };
     private readonly CheckBox _chkTwoPerPage = new() { Text = "Bir sayfaya 2 form (ortadan kesilir)", AutoSize = true };
     private readonly DataGridView _grid = new();
@@ -63,8 +63,9 @@ public sealed class ArbiterSheetsForm : Form
         Text = "Hakem Eşleştirme Kağıtları — " + ctx.EventName;
         Font = new Font("Segoe UI", 9.75f);
         StartPosition = FormStartPosition.CenterParent;
-        Size = new Size(1180, 860);
-        MinimumSize = new Size(900, 700);
+        Size = new Size(1100, 760);
+        MinimumSize = new Size(820, 560);
+        this.FitToScreen(); // küçük ekranda / yüksek ölçekte taşmasın
         BackColor = Color.FromArgb(250, 250, 247);
         BuildLayout();
 
@@ -99,8 +100,9 @@ public sealed class ArbiterSheetsForm : Form
     // ================= Yerleşim =================
     private void BuildLayout()
     {
-        var left = new Panel { Dock = DockStyle.Left, Width = 560, Padding = new Padding(14, 12, 8, 8) };
-        var options = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 300, FlowDirection = FlowDirection.TopDown, WrapContents = false };
+        var left = new Panel { Dock = DockStyle.Left, Width = 520, Padding = new Padding(14, 12, 8, 8) };
+        // Seçenekler kendi içinde kaydırılır: kısa pencerede de hepsine ulaşılsın, tablo ezilmesin.
+        var options = new FlowLayoutPanel { Dock = DockStyle.Bottom, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Height = 300 };
         options.Controls.Add(Header("Sayfa düzeni"));
         // Düzen seçenekleri kendi kabında (yazı boyutu kutusuyla aynı grupta olmasınlar)
         var layoutBox = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(0) };
@@ -115,8 +117,8 @@ public sealed class ArbiterSheetsForm : Form
         options.Controls.Add(Header("Ceza bildirim formu"));
         options.Controls.Add(_cboPenalty);
         _chkPenaltyOnly.Margin = new Padding(0, 4, 0, 0);
-        var penaltyRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 4, 0, 0) };
-        _chkPenaltyOnly.Margin = new Padding(0, 0, 14, 0);
+        var penaltyRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, FlowDirection = FlowDirection.TopDown, Margin = new Padding(0, 4, 0, 0) };
+        _chkPenaltyOnly.Margin = new Padding(0, 0, 0, 2);
         _chkTwoPerPage.Margin = new Padding(0);
         penaltyRow.Controls.AddRange(new Control[] { _chkPenaltyOnly, _chkTwoPerPage });
         options.Controls.Add(penaltyRow);

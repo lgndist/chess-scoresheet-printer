@@ -30,7 +30,7 @@ public partial class MainForm
         {
             var r = await Updater.LatestAsync();
             u.LastCheck = DateTime.Now;
-            _config.Save(_configPath);
+            SaveConfig();
             if (r is not null && Updater.IsNewer(r) && u.SkippedVersion != r.Version.ToString()) ShowUpdateButton(r);
         }
         catch { /* çevrimdışı: sessizce geç, sonraki açılışta yine denenir */ }
@@ -59,7 +59,7 @@ public partial class MainForm
     internal void OpenUpdates(ReleaseInfo? release, IWin32Window? owner = null)
     {
         UpdateConfigFromUi();
-        using var f = new UpdateForm(_config.Updates, () => _config.Save(_configPath), release) { Icon = Icon };
+        using var f = new UpdateForm(_config.Updates, () => SaveConfig(), release) { Icon = Icon };
         f.ShowDialog(owner ?? this);
         // Bu sürüm atlandıysa bildirim kalksın
         if (_btnUpdate is { Tag: ReleaseInfo r } && _config.Updates.SkippedVersion == r.Version.ToString())

@@ -53,6 +53,7 @@ public sealed class BadgesForm : Form
         StartPosition = FormStartPosition.CenterParent;
         Size = new Size(1080, 700);
         MinimumSize = new Size(900, 580);
+        this.FitToScreen(); // küçük ekranda / yüksek ölçekte taşmasın
         BackColor = Color.FromArgb(250, 250, 247);
 
         BuildLayout();

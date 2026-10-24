@@ -107,7 +107,7 @@ public partial class MainForm
         var ctx = new ReportContext(
             _online, _eventTnr!.Value, CurrentEventName(), cats, CurrentProvince(),
             async t => { var r = await RoundsOfAsync(t); return (r.Max, r.System); },
-            _config, () => _config.Save(_configPath), AppContext.BaseDirectory, _outputDir, CategoryStatsAsync);
+            _config, () => SaveConfig(), AppPaths.DataDir, _outputDir, CategoryStatsAsync);
         using var f = new ReportForm(ctx) { Icon = Icon };
         f.ShowDialog(this);
     }
@@ -132,7 +132,7 @@ public partial class MainForm
         if (cats is null) return;
         UpdateConfigFromUi();
         var ctx = new RegistrationContext(_online, _eventTnr!.Value, CurrentEventName(), cats, CurrentProvince(),
-            _config, () => _config.Save(_configPath));
+            _config, () => SaveConfig());
         using var f = new RegistrationForm(ctx) { Icon = Icon };
         f.ShowDialog(owner);
         ShowPairings(rbOnline.Checked ? _syncedTournament : _fileTournament); // listedeki İl sütunu güncellensin
@@ -159,7 +159,7 @@ public partial class MainForm
             var before = _config.Registrations.GetValueOrDefault(tnr.ToString());
             var r = await RegistrationSync.EnsureAsync(_config, _online, tnr, CurrentEventName(), CurrentProvince(), cats, force);
             if (_eventTnr != tnr) return; // bu arada başka turnuva açıldı
-            if (r.Changed || !ReferenceEquals(before, r.Registration)) _config.Save(_configPath);
+            if (r.Changed || !ReferenceEquals(before, r.Registration)) SaveConfig();
             if (r.Message.Length > 0) LogOnce(r.Message);
             if (r.Registration is null) _regSyncMiss[tnr] = DateTime.Now; else _regSyncMiss.Remove(tnr);
             if (r.Changed) ShowPairings(rbOnline.Checked ? _syncedTournament : _fileTournament); // İl sütunu
@@ -178,7 +178,7 @@ public partial class MainForm
         if (cats is null) return;
         UpdateConfigFromUi();
         var ctx = new CardsContext(CurrentEventName(), CardCategories(cats), BoardCountAsync,
-            _config, () => _config.Save(_configPath), AppContext.BaseDirectory, _outputDir);
+            _config, () => SaveConfig(), AppPaths.DataDir, _outputDir);
         using var f = new CardsForm(ctx) { Icon = Icon };
         f.ShowDialog(this);
     }
@@ -206,7 +206,7 @@ public partial class MainForm
         }
         UpdateConfigFromUi();
         var ctx = new BadgesContext(CurrentEventName(), async () => await _online.GetInfoTableAsync(tnr),
-            _config, () => _config.Save(_configPath), AppContext.BaseDirectory, _outputDir);
+            _config, () => SaveConfig(), AppPaths.DataDir, _outputDir);
         using var f = new BadgesForm(ctx) { Icon = Icon };
         f.ShowDialog(this);
     }

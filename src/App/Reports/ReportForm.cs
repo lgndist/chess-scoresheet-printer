@@ -100,6 +100,7 @@ public sealed class ReportForm : Form
         StartPosition = FormStartPosition.CenterParent;
         Size = new Size(1120, 780);
         MinimumSize = new Size(900, 600);
+        this.FitToScreen(); // küçük ekranda / yüksek ölçekte taşmasın
         BackColor = Color.FromArgb(250, 250, 247);
 
         BuildLayout();

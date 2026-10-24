@@ -57,8 +57,9 @@ public partial class MainForm : Form
         InitUx();
         LoadBranding();
         var baseDir = AppContext.BaseDirectory;
-        // Ayarlar %APPDATA%\ChessScoresheetPrinter\config.json'da (ilk açılışta exe yanından taşınır).
-        _configPath = AppPaths.ConfigPath(baseDir, out _configMigratedFrom);
+        // Ayarlar %APPDATA%\ChessScoresheetPrinter\config.json'da (ilk açılışta exe yanından taşınır; Program.Main).
+        _configPath = AppPaths.ConfigFile;
+        _configMigratedFrom = AppPaths.MigratedFrom;
         _outputDir = Path.Combine(baseDir, "outputs");
         Directory.CreateDirectory(_outputDir);
 
@@ -66,13 +67,20 @@ public partial class MainForm : Form
         if (_configMigratedFrom is not null)
             Log($"ℹ Ayarlar ve şablonlar artık {_configPath} dosyasında (güncellemede ve exe taşınınca kaybolmaz). " +
                 $"Eski dosya yedek olarak duruyor: {_configMigratedFrom}");
+        // Afiş, logo, fotoğraf, rapor şablonu ve kağıt görselleri de veri klasörüne (yolları kırılmasın)
+        int moved = AppPaths.MigrateAssets(_config, baseDir);
+        if (moved > 0)
+        {
+            SaveConfig();
+            Log($"ℹ {moved} dosya yolu {AppPaths.DataDir} klasörüne taşındı (afiş, logo, fotoğraf, kağıt görseli).");
+        }
         foreach (var (k, boards) in _config.Online.Selections) // kalıcı masa seçimleri
         {
             var parts = k.Split(':');
             if (parts.Length == 2 && int.TryParse(parts[0], out var c) && int.TryParse(parts[1], out var r))
                 _unchecked[(c, r)] = boards.ToHashSet();
         }
-        OverlayDefaults.EnsureDefaults(_config, baseDir); // Ana Örnek varsayılan şablonu hazırla
+        OverlayDefaults.EnsureDefaults(_config, AppPaths.DataDir); // Ana Örnek varsayılan şablonu hazırla
         Overlay.PrintRouter.Config = _config.Printing;     // hedef yazıcı / tepsi / yazıcı tercihleri / doğrudan yazdır
         ApplyConfigToUi();
 
@@ -350,7 +358,7 @@ public partial class MainForm : Form
         using var dlg = new MetaEditForm(_config);
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
         _config.Tournament.ManualOverride = true; // artık senkronda ezilmesin
-        _config.Save(_configPath);
+        SaveConfig();
         UpdateInfoLabel();
         SetStatus("Turnuva bilgisi güncellendi (kalıcı).", ok: true);
     }
@@ -368,7 +376,7 @@ public partial class MainForm : Form
 
         using var dlg = new ExclusionsForm(_config, boards);
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
-        _config.Save(_configPath);
+        SaveConfig();
         _unchecked.Clear();            // seçimler yeni hariç tutma kuralına göre yeniden kurulsun
         _config.Online.Selections.Clear();
         ShowPairings(_gridTournament); // varsayılan işaretler yeni hariç tutmaya göre
@@ -898,7 +906,7 @@ public partial class MainForm : Form
             _config.Online.SelectedCategoryName = cat?.Name;
             _config.Online.SelectedTnr ??= _eventTnr;
             _config.Tournament.LastRound = round;
-            _config.Save(_configPath);
+            SaveConfig();
 
             int bye = t.Pairings.Count(p => p.IsBye);
             SetStatus($"{ButtonText(cat ?? new CategoryRef(0, "", true))} • {round}. tur: {t.Pairings.Count} masa" +
@@ -1085,7 +1093,7 @@ public partial class MainForm : Form
             var baseT = BuildTournament();
             PrintTournament(baseT, _config.Layout.CopiesPerBoard);
             // Baskıdan sonra kategori/tur/masa seçimleri OLDUĞU GİBİ kalır (sıfırlanmaz, ilerlemez).
-            _config.Save(_configPath);
+            SaveConfig();
         }
         catch (UserMessageException ex) { Fail("Yazdırılamadı", ex.Message); }
         catch (ParseException ex) { Fail("Veri okunamadı", ex.Message); }
@@ -1346,7 +1354,7 @@ public partial class MainForm : Form
     {
         UpdateConfigFromUi();
         using var dlg = new SettingsForm(_config, owner => OpenRegistration(owner), owner => OpenUpdates(null, owner),
-                                         () => _config.Save(_configPath), _configPath);
+                                         () => SaveConfig(), _configPath);
         if (dlg.ShowDialog(this) == DialogResult.OK)
         {
             UpdateProvinceLogo();
@@ -1354,7 +1362,7 @@ public partial class MainForm : Form
             UpdatePrintButtonsForSilent();
             if (HasDefaultProvince && !Equals(cboProvince.SelectedItem, _config.Online.Province))
                 cboProvince.SelectedItem = _config.Online.Province; // Ayarlar'da değişen varsayılan il
-            _config.Save(_configPath);
+            SaveConfig();
             UpdateInfoLabel();
             if (!_config.Overlay.IsConfigured)
                 SetStatus("Hazır kağıt şablonu henüz tanımlı değil.", ok: false);
@@ -1366,7 +1374,7 @@ public partial class MainForm : Form
     private void MainForm_FormClosing(object? sender, FormClosingEventArgs e)
     {
         UpdateConfigFromUi();
-        _config.Save(_configPath);
+        SaveConfig();
         _online.Dispose();
     }
 
@@ -1441,6 +1449,17 @@ public partial class MainForm : Form
         if (_logOnce.TryGetValue(line, out var at) && DateTime.Now - at < TimeSpan.FromMinutes(15)) return;
         _logOnce[line] = DateTime.Now;
         Log(line);
+    }
+
+    /// <summary>Ayarları kaydeder; kaydedilemezse (disk dolu, izin yok…) bir kez uyarır — değişiklikler sessizce kaybolmasın.</summary>
+    private void SaveConfig()
+    {
+        _config.Save(_configPath);
+        if (AppConfig.LastSaveError is { } err)
+        {
+            LogOnce($"⚠ Ayarlar kaydedilemedi ({_configPath}): {err}");
+            SetStatus("⚠ Ayarlar kaydedilemedi — işlem kaydına bakın.", ok: false);
+        }
     }
 
     private void Fail(string title, string message)

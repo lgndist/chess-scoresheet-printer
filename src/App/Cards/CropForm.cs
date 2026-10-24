@@ -29,6 +29,7 @@ public sealed class CropForm : Form
         Font = new Font("Segoe UI", 9.75f);
         StartPosition = FormStartPosition.CenterParent;
         Size = new Size(980, 720);
+        this.FitToScreen(); // küçük ekranda / yüksek ölçekte taşmasın
         MinimumSize = new Size(640, 480);
         KeyPreview = true;
 

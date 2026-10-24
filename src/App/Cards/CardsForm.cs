@@ -61,6 +61,7 @@ public sealed class CardsForm : Form
         Font = new Font("Segoe UI", 9.75f);
         StartPosition = FormStartPosition.CenterParent;
         Size = new Size(1000, 800);
+        this.FitToScreen(); // küçük ekranda / yüksek ölçekte taşmasın
         MinimumSize = new Size(820, 660);
         BackColor = Color.FromArgb(250, 250, 247);
 

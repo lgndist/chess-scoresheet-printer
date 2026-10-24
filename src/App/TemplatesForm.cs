@@ -179,7 +179,7 @@ public sealed class TemplatesForm : Form
         if (MessageBox.Show($"“{name}” şablonu ilk haline sıfırlansın mı? (Bu şablondaki değişiklikler kaybolur.)",
             "Sıfırla", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
 
-        var bg = OverlayDefaults.ExtractBackground(AppContext.BaseDirectory);
+        var bg = OverlayDefaults.ExtractBackground(AppPaths.DataDir);
         var def = OverlayDefaults.BuildBuiltIn(name, bg)!;
         int i = _cfg.Templates.FindIndex(t => t.Name == name);
         if (i >= 0) _cfg.Templates[i] = def; else _cfg.Templates.Add(def);

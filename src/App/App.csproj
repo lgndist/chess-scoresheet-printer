@@ -13,8 +13,8 @@
     <Product>Chess Scoresheet Printer</Product>
     <Authors>Tunahan Dilercan</Authors>
     <Description>Satranç turnuvaları için hazır notasyon kâğıdı yazdırma aracı.</Description>
-    <Version>1.6.6</Version>
-    <FileVersion>1.6.6.0</FileVersion>
+    <Version>1.6.7</Version>
+    <FileVersion>1.6.7.0</FileVersion>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <ApplicationIcon>..\..\assets\app.ico</ApplicationIcon>
@@ -51,6 +51,11 @@
   <ItemGroup>
     <!-- Overlay önizleme PDF'i için (doğrudan kullanım). -->
     <PackageReference Include="QuestPDF" Version="2024.12.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Testler iç sınıfları (ör. AppPaths) doğrudan sınasın. -->
+    <InternalsVisibleTo Include="AppTests" />
   </ItemGroup>
 
   <ItemGroup>

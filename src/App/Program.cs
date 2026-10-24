@@ -17,9 +17,13 @@ internal static class Program
                 try { System.Diagnostics.Process.GetProcessById(pid).WaitForExit(15000); } catch { /* çoktan kapandı */ }
         }
         Update.Updater.CleanupOld();
+        AppPaths.Init(AppContext.BaseDirectory);   // ayarlar ve kullanıcı dosyaları: %APPDATA%\ChessScoresheetPrinter
 
         // WinForms yüksek DPI ve varsayılan font ayarları.
         ApplicationConfiguration.Initialize();
+
+        // İkinci pencere açılmasın: ikisi aynı ayar dosyasını yazarsa biri ötekinin değişikliklerini ezer.
+        if (!AppPaths.AcquireSingleInstance(afterUpdate: UpdatedFrom is not null)) return;
 
         // Beklenmeyen hatalarda uygulama çökmesin, anlaşılır mesaj göster.
         Application.ThreadException += (_, e) =>

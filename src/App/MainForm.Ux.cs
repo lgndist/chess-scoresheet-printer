@@ -68,7 +68,7 @@ public partial class MainForm
     {
         using var f = new Overlay.PrinterSettingsForm(_config.Printing) { Icon = Icon };
         if (f.ShowDialog(this) != DialogResult.OK) return;
-        _config.Save(_configPath);
+        SaveConfig();
         Overlay.PrintRouter.Config = _config.Printing;
         UpdatePrintButtonsForSilent();
         SetStatus("Yazıcı ayarları kaydedildi: " + Overlay.PrintRouter.TargetName, ok: true);
@@ -86,7 +86,7 @@ public partial class MainForm
     private void ToggleLog()
     {
         _config.Layout.LogExpanded = !_config.Layout.LogExpanded;
-        _config.Save(_configPath);
+        SaveConfig();
         ApplyLogState();
         RelayoutLeft();
         if (LogExpanded) { txtLog.SelectionStart = txtLog.TextLength; txtLog.ScrollToCaret(); }

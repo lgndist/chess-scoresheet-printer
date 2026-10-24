@@ -80,6 +80,7 @@ public sealed class RegistrationForm : Form
         StartPosition = FormStartPosition.CenterParent;
         Size = new Size(1100, 760);
         MinimumSize = new Size(900, 600);
+        this.FitToScreen(); // küçük ekranda / yüksek ölçekte taşmasın
         BackColor = Color.FromArgb(250, 250, 247);
         BuildLayout();
 

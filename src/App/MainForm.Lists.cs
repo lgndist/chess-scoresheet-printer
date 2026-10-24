@@ -279,7 +279,7 @@ public partial class MainForm
         UpdateConfigFromUi();
         var eventName = EventGrouping.BaseName(string.IsNullOrWhiteSpace(_config.Tournament.Name) ? CurrentEventName() : _config.Tournament.Name);
         var ctx = new ArbiterSheetsContext(eventName, cats.Where(c => c.Tnr > 0).ToList(), LoadArbiterSheetAsync, LoadArbiterRoundsAsync,
-                                           _config.ArbiterSheets, () => _config.Save(_configPath), _outputDir);
+                                           _config.ArbiterSheets, () => SaveConfig(), _outputDir);
         using var f = new ArbiterSheetsForm(ctx) { Icon = Icon };
         f.ShowDialog(this);
     }

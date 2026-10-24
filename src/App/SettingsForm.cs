@@ -320,7 +320,8 @@ public sealed class SettingsForm : Form
         if (_configPath is not null)
         {
             // Ayarların (şablonlar dahil) kaydedildiği yer; klasör açılabilir (yedek almak için).
-            _host.Controls.Add(Note($"Ayarlar ve şablonlar: {_configPath} (her kayıtta önceki hâli config.json.bak olarak saklanır).", y, 54));
+            _host.Controls.Add(Note($"Ayarlar, şablonlar ve eklediğiniz afiş/logo/fotoğraflar: {Path.GetDirectoryName(_configPath)} " +
+                                    "(her kayıtta ayarların önceki hâli config.json.bak olarak saklanır).", y, 54));
             y += 56;
             var open = new LinkLabel { Text = "📂 Ayar klasörünü aç", AutoSize = true, Location = new System.Drawing.Point(RX, y) };
             open.LinkClicked += (_, _) =>
