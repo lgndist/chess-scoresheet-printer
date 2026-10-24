@@ -18,6 +18,7 @@ public sealed class SettingsForm : Form
     private readonly NumericUpDown _offX = MmBox();
     private readonly NumericUpDown _offY = MmBox();
     private readonly Dictionary<string, ComboBox> _systemTemplate = new();
+    private readonly ComboBox _testTemplate = new() { DropDownStyle = ComboBoxStyle.DropDownList };
 
     // Sağ sütun: bölge (varsayılan il, TSF sitesi) ve yazıcı
     private readonly ComboBox _province = new() { DropDownStyle = ComboBoxStyle.DropDownList };
@@ -88,7 +89,7 @@ public sealed class SettingsForm : Form
         _host.Controls.Add(new Label { Text = "Sağa (+) / sola (−):", AutoSize = true, Location = new System.Drawing.Point(16, y + 4) });
         _offX.SetBounds(150, y, 70, 25); _host.Controls.Add(_offX);
         _host.Controls.Add(new Label { Text = "Aşağı (+) / yukarı (−):", AutoSize = true, Location = new System.Drawing.Point(230, y + 4) });
-        _offY.SetBounds(374, y, 50, 25); _host.Controls.Add(_offY);
+        _offY.SetBounds(374, y, 62, 25); _host.Controls.Add(_offY);
         y += 32;
         _host.Controls.Add(new Label
         {
@@ -98,6 +99,8 @@ public sealed class SettingsForm : Form
             ForeColor = System.Drawing.Color.Gray
         });
         y += 58;
+        AddRow("Test edilecek şablon:", _testTemplate, ref y);
+        y -= 4;
         var btnTest = new Button
         {
             Text = "🖨 Hizalama testi yazdır (örnek tek kağıt)…",
@@ -341,10 +344,23 @@ public sealed class SettingsForm : Form
 
     private void OpenTemplates(object? sender, EventArgs e)
     {
-        using var dlg = new TemplatesForm(_cfg);
+        // Şablon listesindeki hizalama testi bu penceredeki (henüz kaydedilmemiş) kağıt boyutu ve kaydırmayı kullanır.
+        using var dlg = new TemplatesForm(_cfg, () => (_pageSize.SelectedIndex == 0 ? "A5" : "A4", (double)_offX.Value, (double)_offY.Value));
         dlg.ShowDialog(this);
         // Etkin şablon değişmiş olabilir; çağıran (MainForm) Kaydet'te config'i yazar.
         FillSystemCombos(); // şablon eklenmiş/silinmiş olabilir
+        FillTestTemplates();
+    }
+
+    /// <summary>Hizalama testi şablon listesi: kütüphanedeki şablonlar, nerede kullanıldıklarıyla; varsayılan etkin şablon.</summary>
+    private void FillTestTemplates()
+    {
+        var keep = _testTemplate.SelectedIndex;
+        _testTemplate.Items.Clear();
+        foreach (var t in _cfg.Templates) _testTemplate.Items.Add(t.Name + AlignmentTest.Uses(_cfg, t));
+        int active = _cfg.Templates.FindIndex(t => t.Name == _cfg.Overlay.Name);
+        _testTemplate.SelectedIndex = keep >= 0 && keep < _testTemplate.Items.Count ? keep
+            : active >= 0 ? active : (_testTemplate.Items.Count > 0 ? 0 : -1);
     }
 
     /// <summary>Sistem → şablon listelerini doldurur; mevcut seçimi (ya da config'tekini) korur.</summary>
@@ -369,10 +385,10 @@ public sealed class SettingsForm : Form
             MessageBox.Show(this, "Önce bir hazır kağıt şablonu tanımlayın.", "Şablon yok", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
-        var (t, p) = OverlayLayout.Sample();
-        t = t with { Pairings = new[] { p } };
-        var size = _pageSize.SelectedIndex == 0 ? "A5" : "A4";
-        new SheetPrinter(_cfg.Overlay, t, size, (double)_offX.Value, (double)_offY.Value).PrintWithPreview(this);
+        // Seçilen şablon; etkin şablon seçiliyse baskıda kullanılan kopyası (Overlay).
+        int i = _testTemplate.SelectedIndex;
+        var tpl = i >= 0 && i < _cfg.Templates.Count && _cfg.Templates[i].Name != _cfg.Overlay.Name ? _cfg.Templates[i] : _cfg.Overlay;
+        AlignmentTest.Print(this, tpl, _pageSize.SelectedIndex == 0 ? "A5" : "A4", (double)_offX.Value, (double)_offY.Value);
     }
 
     private void AddRow(string label, Control input, ref int y)
@@ -397,6 +413,7 @@ public sealed class SettingsForm : Form
         _printerPanel.LoadFrom(_cfg.Printing);
         _autoUpdate.Checked = _cfg.Updates.AutoCheck;
         FillSystemCombos();
+        FillTestTemplates();
     }
 
     private static decimal Clamp(double v, NumericUpDown n)

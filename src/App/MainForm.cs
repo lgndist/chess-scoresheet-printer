@@ -1270,7 +1270,8 @@ public partial class MainForm : Form
         if (printed)
         {
             SetStatus($"✓ {t.Pairings.Count} kağıt yazıcıya gönderildi.", ok: true);
-            Log($"🖨 Basıldı: {baseT.Name} — {DescribeRounds(baseT)}, {baseT.Pairings.Count} masa × {copies} = {t.Pairings.Count} kağıt.");
+            Log($"🖨 Basıldı: {baseT.Name} — {DescribeRounds(baseT)}, {baseT.Pairings.Count} masa × {copies} = {t.Pairings.Count} kağıt " +
+                $"(şablon: {printer.TemplateNames}; {_config.Layout.PageSize}; kaydırma {_config.Layout.PrintOffsetXmm:0.0}/{_config.Layout.PrintOffsetYmm:0.0} mm).");
         }
         else SetStatus("Önizleme kapatıldı; baskı yapılmadı.", ok: true);
         return printed;

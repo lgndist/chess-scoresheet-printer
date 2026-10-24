@@ -39,6 +39,20 @@ public sealed class SheetPrinter
     /// <summary>Basılacak sayfa (yaprak) sayısı.</summary>
     public int PageCount => _pages.Count;
 
+    /// <summary>Bu baskıda kullanılan şablonların adları (önizleme başlığı ve işlem kaydı için).</summary>
+    public string TemplateNames => string.Join(", ", _pages.Select(p => p.Template.Name).Where(n => !string.IsNullOrWhiteSpace(n)).Distinct());
+
+    /// <summary>Önizleme başlığı: sayfa, kağıt, şablon ve (varsa) yazıcı kaydırması — kayma olursa nedeni görülsün.</summary>
+    private string Caption()
+    {
+        var parts = new List<string> { $"{PageCount} sayfa", _pageSize };
+        if (TemplateNames.Length > 0) parts.Add("şablon: " + TemplateNames);
+        if (_offsetXPt != 0 || _offsetYPt != 0)
+            parts.Add($"kaydırma {_offsetXPt / 72.0 * 25.4:+0.0;−0.0;0} / {_offsetYPt / 72.0 * 25.4:+0.0;−0.0;0} mm");
+        parts.Add("soluk kağıt yalnız önizlemededir");
+        return string.Join(" • ", parts);
+    }
+
     /// <summary>Yazıcı seçtirip yazdırır. true = yazdırma başladı, false = iptal.</summary>
     public bool PrintWithDialog(IWin32Window owner)
     {
@@ -56,9 +70,7 @@ public sealed class SheetPrinter
         using var doc = BuildDocument();
         // Doğrudan yazdır: önizleme ve yazıcı penceresi açılmadan hedef yazıcıya.
         if (PrintRouter.IsSilent) return ChoosePrinterAndPrint(doc, owner);
-        return PreviewDialog.Show(owner, doc, PageCount,
-            $"{PageCount} sayfa • {_pageSize} • soluk kağıt yalnız önizlemededir, basılmaz",
-            f => ChoosePrinterAndPrint(doc, f));
+        return PreviewDialog.Show(owner, doc, PageCount, Caption(), f => ChoosePrinterAndPrint(doc, f));
     }
 
     /// <summary>

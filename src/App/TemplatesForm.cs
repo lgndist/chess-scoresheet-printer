@@ -1,3 +1,4 @@
+using NotasyonOtomasyonu.App.Overlay;
 using NotasyonOtomasyonu.App.TemplateDesigner;
 using NotasyonOtomasyonu.Core;
 
@@ -11,12 +12,14 @@ namespace NotasyonOtomasyonu.App;
 public sealed class TemplatesForm : Form
 {
     private readonly AppConfig _cfg;
+    private readonly Func<(string Size, double X, double Y)> _print;   // kağıt boyutu ve yazıcı kaydırması
     private readonly ListBox _list = new();
     private readonly Label _info = new();
 
-    public TemplatesForm(AppConfig cfg)
+    public TemplatesForm(AppConfig cfg, Func<(string Size, double X, double Y)>? print = null)
     {
         _cfg = cfg;
+        _print = print ?? (() => (cfg.Layout.PageSize, cfg.Layout.PrintOffsetXmm, cfg.Layout.PrintOffsetYmm));
 
         Text = "🎨 Hazır Kağıt Şablonları";
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -24,7 +27,7 @@ public sealed class TemplatesForm : Form
         MaximizeBox = MinimizeBox = false;
         BackColor = System.Drawing.Color.FromArgb(245, 245, 240);
         Font = new System.Drawing.Font("Segoe UI", 9.75F);
-        ClientSize = new System.Drawing.Size(520, 340);
+        ClientSize = new System.Drawing.Size(520, 384);
 
         Controls.Add(new Label
         {
@@ -32,13 +35,13 @@ public sealed class TemplatesForm : Form
             AutoSize = true, Location = new System.Drawing.Point(16, 12), ForeColor = System.Drawing.Color.Gray
         });
 
-        _list.SetBounds(16, 38, 320, 250);
+        _list.SetBounds(16, 38, 320, 294);
         _list.IntegralHeight = false;
         _list.SelectedIndexChanged += (_, _) => UpdateInfo();
         _list.DoubleClick += (_, _) => EditSelected();
         Controls.Add(_list);
 
-        _info.SetBounds(16, 294, 320, 36);
+        _info.SetBounds(16, 338, 320, 36);
         _info.ForeColor = System.Drawing.Color.FromArgb(95, 122, 70);
         Controls.Add(_info);
 
@@ -50,8 +53,15 @@ public sealed class TemplatesForm : Form
         AddBtn("🗑 Sil", bx, ref by, Delete);
         by += 12;
         AddBtn("↺ Varsayılana Sıfırla", bx, ref by, ResetDefault);
+        by += 6;
+        AddBtn("🖨 Hizalama testi", bx, ref by, (_, _) =>
+        {
+            var t = Selected; if (t is null) return;
+            var (size, x, y) = _print();
+            AlignmentTest.Print(this, IsActive(t) ? _cfg.Overlay : t, size, x, y);
+        });
 
-        var close = new Button { Text = "Kapat", DialogResult = DialogResult.OK, Size = new System.Drawing.Size(152, 30), Location = new System.Drawing.Point(bx, 300) };
+        var close = new Button { Text = "Kapat", DialogResult = DialogResult.OK, Size = new System.Drawing.Size(152, 30), Location = new System.Drawing.Point(bx, 344) };
         Controls.Add(close);
         AcceptButton = close;
 
@@ -75,7 +85,7 @@ public sealed class TemplatesForm : Form
             bool active = IsActive(t);
             string mark = active ? "✓ " : "   ";
             int fields = t.Fields.Count;
-            _list.Items.Add($"{mark}{t.Name}  ({fields} alan)");
+            _list.Items.Add($"{mark}{t.Name}  ({fields} alan){AlignmentTest.Uses(_cfg, t)}");
         }
         // seçimi koru
         int idx = selectName is null ? -1 : _cfg.Templates.FindIndex(t => t.Name == selectName);
