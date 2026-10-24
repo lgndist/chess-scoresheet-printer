@@ -30,6 +30,9 @@ public partial class MainForm : Form
     /// farklı sistemde (İsviçre / Berger / takım) olabilir.
     /// </summary>
     private readonly Dictionary<int, (int Max, int Current, TournamentSystem System)> _roundCache = new();
+    // Döner (Berger) kategorilerde kullanıcının seçtiği tur: bütün turlar baştan eşli olduğundan
+    // kısayollar, "Tüm Kategoriler" ve listeler bu turu basar (yeni turnuvada sıfırlanır).
+    private int? _rrRound;
 
     /// <summary>
     /// (kategori, tur) → işareti KALDIRILMIŞ masalar. Seçim her kategori/tur için ayrı tutulur:
@@ -484,6 +487,7 @@ public partial class MainForm : Form
         {
             var info = await _online.GetEventAsync(tnr); _ranked[tnr] = info.RankedRound;
             bool isNewEvent = _config.Online.SelectedTnr != tnr;
+            if (isNewEvent) _rrRound = null;
             _eventTnr = tnr;
             _roundCache[tnr] = (info.MaxRound, info.CurrentRound, info.System); // bu kategorinin turları
             // Eski/bitmiş turnuvada chess-results ayrıntıları gizleyebilir (tarih, tip, tur menüsü
@@ -651,13 +655,24 @@ public partial class MainForm : Form
     private string QuickText(CategoryRef c)
     {
         if (!_roundCache.TryGetValue(c.Tnr, out var r)) return $"🖨 {ButtonText(c)} · …";
-        return r.Current > 0 ? $"🖨 {ButtonText(c)} · T{r.Current}" : $"{ButtonText(c)} · —";
+        return r.Current > 0 ? $"🖨 {ButtonText(c)} · T{PrintRound(r)}" : $"{ButtonText(c)} · —";
     }
+
+    /// <summary>
+    /// Kısayolların, listelerin ve hakem kağıtlarının basacağı tur. İsviçre sisteminde eşlenmiş son tur;
+    /// döner (Berger) sistemde bütün turlar baştan eşli olduğundan kullanıcının seçtiği tur (kategorinin
+    /// tur sayısıyla sınırlı; henüz seçilmediyse oynanan tur).
+    /// </summary>
+    private int PrintRound((int Max, int Current, TournamentSystem System) r)
+        => r.Current > 0 && r.System.IsRoundRobin() && _rrRound is int n ? Math.Clamp(n, 1, Math.Max(r.Current, r.Max)) : r.Current;
 
     private string QuickTip(CategoryRef c)
     {
         if (!_roundCache.TryGetValue(c.Tnr, out var r)) return $"{c.Name} — tur bilgisi alınıyor…";
         var sys = r.System == TournamentSystem.Unknown ? "" : $" • {r.System.DisplayName()}";
+        if (r.Current > 0 && r.System.IsRoundRobin())
+            return $"{c.Name}{sys} — bütün turlar eşli; seçtiğiniz tur {PrintRound(r)}/{r.Max} basılır (tur düğmelerinden değiştirin). " +
+                   "Tek tık: bu turun işaretli masalarını yazdır (BAY hariç).";
         return r.Current > 0
             ? $"{c.Name}{sys} — son eşlenen tur {r.Current}/{r.Max}. Tek tık: bu turun işaretli masalarını yazdır (BAY hariç)."
             : $"{c.Name}{sys} — henüz eşleştirme yok.";
@@ -694,6 +709,12 @@ public partial class MainForm : Form
     private async void round_CheckedChanged(object? sender, EventArgs e)
     {
         if (_loading || sender is not RadioButton { Checked: true }) return;
+        if (SelectedCategory() is { } sel && SystemOf(sel.Tnr).IsRoundRobin())
+        {
+            // Berger: seçilen tur bütün döner kategorilerin kısayollarına ve toplu baskıya geçer.
+            _rrRound = SelectedRound();
+            foreach (var c in CurrentCategories().Where(c => SystemOf(c.Tnr).IsRoundRobin())) UpdateQuickButton(c);
+        }
         await SyncPairingsAsync(showWarnings: false);
     }
 
@@ -727,7 +748,8 @@ public partial class MainForm : Form
                 var cat = CurrentCategories().FirstOrDefault(c => c.Tnr == catTnr);
                 if (cat is not null) UpdateQuickButton(cat);
             }
-            BuildRoundButtons(rounds.Max, rounds.Current);
+            // Berger'de başka kategoriye geçince seçilen tur korunur.
+            BuildRoundButtons(rounds.Max, PrintRound(rounds));
             return rounds.Current;
         }
         catch { return -1; /* tur bilgisi alınamadıysa mevcut butonlar kalsın */ }
@@ -911,9 +933,10 @@ public partial class MainForm : Form
             }
             if (r.Current <= 0) { SetStatus($"{ButtonText(cat)}: henüz eşleştirme yayımlanmamış.", ok: false); return; }
 
-            var t = await FetchCategoryAsync(cat, r.Current);
-            if (t.Pairings.Count == 0) { SetStatus($"{ButtonText(cat)} • {r.Current}. tur: basılacak masa yok.", ok: false); return; }
-            SetStatus($"{ButtonText(cat)} • {r.Current}. tur: {t.Pairings.Count} masa yazdırılıyor…", ok: true);
+            int rd = PrintRound(r); // Berger: seçilen tur
+            var t = await FetchCategoryAsync(cat, rd);
+            if (t.Pairings.Count == 0) { SetStatus($"{ButtonText(cat)} • {rd}. tur: basılacak masa yok.", ok: false); return; }
+            SetStatus($"{ButtonText(cat)} • {rd}. tur: {t.Pairings.Count} masa yazdırılıyor…", ok: true);
             PrintTournament(t, _config.Layout.CopiesPerBoard);
         }
         catch (UserMessageException ex) { Fail("Kısayol", ex.Message); }
@@ -1005,7 +1028,8 @@ public partial class MainForm : Form
             }
             catch { return Math.Max(1, sel); }
         }
-        int last = rounds.Current > 0 ? rounds.Current : rounds.Max;
+        // Berger'de bütün turlar eşli: seçilen tur, kategorinin tur sayısına kadar basılabilir.
+        int last = rounds.Current > 0 ? (rounds.System.IsRoundRobin() ? Math.Max(rounds.Current, rounds.Max) : rounds.Current) : rounds.Max;
         return Math.Max(1, Math.Min(sel, Math.Max(1, last)));
     }
 

@@ -126,12 +126,13 @@ public partial class MainForm
         if (_flowPairLists is null || _flowResultLists is null) return;
         var name = CompactName(c);
         bool known = _roundCache.TryGetValue(c.Tnr, out var r);
+        int pr = known ? PrintRound(r) : 0;
         foreach (var b in _flowPairLists.Controls.OfType<Button>().Where(x => x.Tag is CategoryRef k && k.Tnr == c.Tnr))
         {
-            b.Text = !known ? $"{name} …" : r.Current > 0 ? $"{name} T{r.Current}" : $"{name} —";
+            b.Text = !known ? $"{name} …" : r.Current > 0 ? $"{name} T{pr}" : $"{name} —";
             b.Enabled = !known || r.Current > 0;
             _listTip.SetToolTip(b, known && r.Current > 0
-                ? $"{c.Name} — {r.Current}. tur eşleştirme listesini A4 bas (masa, oyuncular, puanlar)."
+                ? $"{c.Name} — {pr}. tur eşleştirme listesini A4 bas (masa, oyuncular, puanlar)."
                 : $"{c.Name} — henüz eşleştirme yok.");
         }
         bool rk = _ranked.TryGetValue(c.Tnr, out var ranked);
@@ -207,7 +208,7 @@ public partial class MainForm
                     _ranked[cat.Tnr] = info.RankedRound;
                 }
                 UpdateListButtons(cat);
-                int round = forceRound ?? (results ? _ranked.GetValueOrDefault(cat.Tnr) : r.Current);
+                int round = forceRound ?? (results ? _ranked.GetValueOrDefault(cat.Tnr) : PrintRound(r));
                 if (round <= 0) { skipped.Add(cat.Name); continue; }
 
                 Tournament t;
@@ -288,7 +289,7 @@ public partial class MainForm
     {
         var r = await RoundsOfAsync(cat.Tnr);
         UpdateListButtons(cat);
-        int rd = round ?? r.Current;
+        int rd = round ?? PrintRound(r);
         if (rd <= 0) return null;
         Tournament t;
         try { t = await _online.GetPairingsAsync(cat.Tnr, rd, r.System); }
