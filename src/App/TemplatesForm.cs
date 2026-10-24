@@ -120,7 +120,8 @@ public sealed class TemplatesForm : Form
     private void EditSelected()
     {
         var t = Selected; if (t is null) return;
-        using var dlg = new TemplateDesignerForm(t.DeepClone(), _cfg.Layout.PageSize);
+        // Ayarlar'da seçili (henüz kaydedilmemiş olabilir) kağıt boyutuyla: A5 basılacaksa A5'e göre düzenlenir.
+        using var dlg = new TemplateDesignerForm(t.DeepClone(), _print().Size);
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
         var edited = dlg.Result;
         if (string.IsNullOrWhiteSpace(edited.Name)) edited.Name = t.Name;

@@ -14,6 +14,7 @@ namespace NotasyonOtomasyonu.App;
 public partial class MainForm : Form
 {
     private readonly string _configPath;
+    private readonly string? _configMigratedFrom;   // bu açılışta exe yanından AppData'ya taşındıysa
     private readonly string _outputDir;
     private AppConfig _config;
     private readonly ChessResultsService _online = new();
@@ -56,11 +57,15 @@ public partial class MainForm : Form
         InitUx();
         LoadBranding();
         var baseDir = AppContext.BaseDirectory;
-        _configPath = Path.Combine(baseDir, "config.json");
+        // Ayarlar %APPDATA%\ChessScoresheetPrinter\config.json'da (ilk açılışta exe yanından taşınır).
+        _configPath = AppPaths.ConfigPath(baseDir, out _configMigratedFrom);
         _outputDir = Path.Combine(baseDir, "outputs");
         Directory.CreateDirectory(_outputDir);
 
         _config = AppConfig.Load(_configPath);
+        if (_configMigratedFrom is not null)
+            Log($"ℹ Ayarlar ve şablonlar artık {_configPath} dosyasında (güncellemede ve exe taşınınca kaybolmaz). " +
+                $"Eski dosya yedek olarak duruyor: {_configMigratedFrom}");
         foreach (var (k, boards) in _config.Online.Selections) // kalıcı masa seçimleri
         {
             var parts = k.Split(':');
@@ -1340,7 +1345,8 @@ public partial class MainForm : Form
     private void btnSettings_Click(object? sender, EventArgs e)
     {
         UpdateConfigFromUi();
-        using var dlg = new SettingsForm(_config, owner => OpenRegistration(owner), owner => OpenUpdates(null, owner));
+        using var dlg = new SettingsForm(_config, owner => OpenRegistration(owner), owner => OpenUpdates(null, owner),
+                                         () => _config.Save(_configPath), _configPath);
         if (dlg.ShowDialog(this) == DialogResult.OK)
         {
             UpdateProvinceLogo();

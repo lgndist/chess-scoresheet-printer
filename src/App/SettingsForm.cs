@@ -28,6 +28,8 @@ public sealed class SettingsForm : Form
     private readonly ComboBox _logoKind = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly Action<IWin32Window>? _openRegistration;
     private readonly Action<IWin32Window>? _openUpdates;
+    private readonly Action? _saveNow;          // şablon değişikliklerini hemen diske yaz
+    private readonly string? _configPath;
     private readonly CheckBox _autoUpdate = new() { Text = "Program açılınca yeni sürümü denetle (günde bir kez)", AutoSize = true };
     private readonly TabControl _tabs = new() { Location = new System.Drawing.Point(12, 12) };
     private Control _host = null!;                             // kurulurken denetimlerin eklendiği sekme
@@ -42,11 +44,14 @@ public sealed class SettingsForm : Form
         ("Team", "Takım turnuvası:"),
     };
 
-    public SettingsForm(AppConfig cfg, Action<IWin32Window>? openRegistration = null, Action<IWin32Window>? openUpdates = null)
+    public SettingsForm(AppConfig cfg, Action<IWin32Window>? openRegistration = null, Action<IWin32Window>? openUpdates = null,
+                        Action? saveNow = null, string? configPath = null)
     {
         _cfg = cfg;
         _openRegistration = openRegistration;
         _openUpdates = openUpdates;
+        _saveNow = saveNow;
+        _configPath = configPath;
 
         Text = "⚙ Ayarlar";
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -309,9 +314,24 @@ public sealed class SettingsForm : Form
         _host.Controls.Add(_autoUpdate);
         y += 30;
         _host.Controls.Add(Note("Yeni sürüm GitHub'dan indirilir, doğrulanır ve programın yerine kurulur; program yeni sürümle " +
-                                "yeniden açılır. Ayarlarınız (config.json), şablonlarınız ve çıktılarınız korunur. " +
+                                "yeniden açılır. Ayarlarınız, şablonlarınız ve çıktılarınız korunur. " +
                                 (_cfg.Updates.LastCheck is { } last ? $"Son denetim: {last:dd.MM.yyyy HH:mm}." : ""), y, 72));
-        return y + 76;
+        y += 76;
+        if (_configPath is not null)
+        {
+            // Ayarların (şablonlar dahil) kaydedildiği yer; klasör açılabilir (yedek almak için).
+            _host.Controls.Add(Note($"Ayarlar ve şablonlar: {_configPath} (her kayıtta önceki hâli config.json.bak olarak saklanır).", y, 54));
+            y += 56;
+            var open = new LinkLabel { Text = "📂 Ayar klasörünü aç", AutoSize = true, Location = new System.Drawing.Point(RX, y) };
+            open.LinkClicked += (_, _) =>
+            {
+                try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.GetDirectoryName(_configPath)!) { UseShellExecute = true }); }
+                catch { /* yok say */ }
+            };
+            _host.Controls.Add(open);
+            y += 26;
+        }
+        return y;
     }
 
     /// <summary>Logo seçenekleri: seçili ilin TSF logosu (il varsa) ve TSF genel logosu; seçim korunur.</summary>
@@ -347,7 +367,8 @@ public sealed class SettingsForm : Form
         // Şablon listesindeki hizalama testi bu penceredeki (henüz kaydedilmemiş) kağıt boyutu ve kaydırmayı kullanır.
         using var dlg = new TemplatesForm(_cfg, () => (_pageSize.SelectedIndex == 0 ? "A5" : "A4", (double)_offX.Value, (double)_offY.Value));
         dlg.ShowDialog(this);
-        // Etkin şablon değişmiş olabilir; çağıran (MainForm) Kaydet'te config'i yazar.
+        // Şablon değişiklikleri pencere kapanınca hemen kaydedilir (Ayarlar'da "Vazgeç"e basılsa da kaybolmaz).
+        _saveNow?.Invoke();
         FillSystemCombos(); // şablon eklenmiş/silinmiş olabilir
         FillTestTemplates();
     }

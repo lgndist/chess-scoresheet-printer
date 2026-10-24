@@ -102,14 +102,26 @@ public sealed class AppConfig
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
-    /// <summary>Dosyadan yükle; yoksa veya bozuksa varsayılanları döndür (asla istisna fırlatmaz).</summary>
+    /// <summary>
+    /// Dosyadan yükle; yoksa varsayılanlar. Dosya bozuksa (yarım yazılmış vb.) son kaydın yedeği
+    /// (config.json.bak) okunur ve bozuk dosya silinmeden "config.json.bozuk-…" adıyla saklanır;
+    /// ayarlar ve şablonlar sessizce sıfırlanıp üzerine yazılmaz. Asla istisna fırlatmaz.
+    /// </summary>
     public static AppConfig Load(string path)
+    {
+        if (!File.Exists(path)) return TryRead(path + ".bak") ?? new AppConfig();
+        if (TryRead(path) is { } cfg) return cfg;
+        try { File.Copy(path, $"{path}.bozuk-{DateTime.Now:yyyyMMdd-HHmmss}", overwrite: true); } catch { }
+        return TryRead(path + ".bak") ?? new AppConfig();
+    }
+
+    private static AppConfig? TryRead(string path)
     {
         try
         {
-            if (!File.Exists(path)) return new AppConfig();
-            var json = File.ReadAllText(path);
-            var cfg = JsonSerializer.Deserialize<AppConfig>(json, JsonOpts) ?? new AppConfig();
+            if (!File.Exists(path)) return null;
+            var cfg = JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(path), JsonOpts);
+            if (cfg is null) return null;
             // Mapping boş geldiyse varsayılanlarla doldur ki parser çalışsın.
             if (cfg.Mapping is null || cfg.Mapping.Count == 0)
                 cfg.Mapping = DefaultMapping();
@@ -117,10 +129,7 @@ public sealed class AppConfig
                 MergeDefaults(cfg.Mapping);
             return cfg;
         }
-        catch
-        {
-            return new AppConfig();
-        }
+        catch { return null; }
     }
 
     /// <summary>Diske kaydet (hata olursa sessizce yutulur, çökme yok).</summary>
@@ -132,7 +141,12 @@ public sealed class AppConfig
             while (Online.Selections.Count > 400) Online.Selections.Remove(Online.Selections.Keys.First());
             while (ReportEventValues.Count > 40) ReportEventValues.Remove(ReportEventValues.Keys.First());
             var json = JsonSerializer.Serialize(this, JsonOpts);
-            File.WriteAllText(path, json);
+            // Önce geçici dosyaya yaz, sonra yerine koy (önceki kayıt .bak olarak kalır): yazarken
+            // elektrik kesilse ya da program kapansa bile ayarlar ve şablonlar yarım kalmaz.
+            var tmp = path + ".tmp";
+            File.WriteAllText(tmp, json);
+            if (File.Exists(path)) File.Replace(tmp, path, path + ".bak", ignoreMetadataErrors: true);
+            else File.Move(tmp, path);
         }
         catch { /* config kaydı kritik değil */ }
     }
