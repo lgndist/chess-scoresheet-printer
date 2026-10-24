@@ -9,7 +9,7 @@ namespace NotasyonOtomasyonu.App;
 public partial class MainForm
 {
     private LinkLabel? _lnkLog;
-    private LinkLabel? _lnkLogWindow;
+    private LinkLabel? _lnkLogWindow, _lnkPrintDetails;
     private LogWindow? _logWindow;
     private int _logLines, _logErrors;
     private bool _busy;
@@ -36,7 +36,16 @@ public partial class MainForm
         };
         _lnkLogWindow.LinkClicked += (_, _) => ShowLogWindow();
         Controls.Add(_lnkLogWindow);
-        new ToolTip().SetToolTip(_lnkLogWindow, "İşlem kaydını istediğiniz boyuta getirebileceğiniz ayrı bir pencerede açar.");
+        new ToolTip().SetToolTip(_lnkLogWindow, "İşlem kaydını ve baskı ayrıntılarını (yazıcı, kağıt, kenar, kaydırma) istediğiniz boyutta ayrı bir pencerede açar.");
+        // Doğrudan baskı ayrıntıları sekmesi (kayma sorununda)
+        _lnkPrintDetails = new LinkLabel
+        {
+            AutoSize = true, Text = "🔍 baskı ayrıntıları", LinkBehavior = LinkBehavior.HoverUnderline,
+            LinkColor = ThGreenDark, ActiveLinkColor = ThGreenDark, Anchor = AnchorStyles.Top | AnchorStyles.Left
+        };
+        _lnkPrintDetails.LinkClicked += (_, _) => { ShowLogWindow(); _logWindow?.ShowDetailsTab(); };
+        Controls.Add(_lnkPrintDetails);
+        new ToolTip().SetToolTip(_lnkPrintDetails, "Yazıcının kağıdı, basılamayan kenar, kaydırma ve son baskıda yazıların kağıttaki yeri: kaymayı çözmek ya da göndermek için.");
         Load += (_, _) => { ApplyLogState(); RelayoutLeft(); };
 
         // Yazdır düğmesinin altında ince yazıcı satırı: hangi yazıcıya basılacağı her an görünür, tıklayınca ayarlar.
@@ -149,11 +158,12 @@ public partial class MainForm
     {
         if (_lnkLog is null || _lnkLogWindow is null) return;
         _lnkLogWindow.Location = new Point(_lnkLog.Right + 14, _lnkLog.Top);
+        if (_lnkPrintDetails is not null) _lnkPrintDetails.Location = new Point(_lnkLogWindow.Right + 14, _lnkLog.Top);
     }
 
     private void ShowLogWindow()
     {
-        _logWindow ??= new LogWindow(() => txtLog.Text, () => { txtLog.Clear(); _logLines = _logErrors = 0; UpdateLogLink(); }) { Icon = Icon };
+        _logWindow ??= new LogWindow(() => txtLog.Text, () => { txtLog.Clear(); _logLines = _logErrors = 0; UpdateLogLink(); }, PrintDiagnostics) { Icon = Icon };
         if (!_logWindow.Visible)
         {
             var wa = Screen.FromControl(this).WorkingArea;

@@ -45,6 +45,12 @@ public sealed class SheetPrinter
     /// </summary>
     public string? PrintedPaper { get; private set; }
 
+    /// <summary>
+    /// Son gerçek baskının ayrıntıları (işlem kaydı → Baskı ayrıntıları): yazıcının kağıdı, sayfası, basılamayan
+    /// kenarı, çözünürlüğü, kaydırma ve ilk kağıttaki yazıların kağıt kenarlarına uzaklığı (ölçüp karşılaştırmak için).
+    /// </summary>
+    public static string? LastPrintReport { get; private set; }
+
     /// <summary>Yazıcının bildirdiği kağıt, notasyon boyutundan (A5/A4) 5 mm'den fazla farklı mı.</summary>
     public bool PaperMismatch { get; private set; }
 
@@ -159,6 +165,8 @@ public sealed class SheetPrinter
             var page = _pages[_pageIndex];
             var tpl = page.Template;
             var sheets = OverlayLayout.SheetRects(tpl.PerPage is 1 or 2 ? tpl.PerPage : 1, _pageSize);
+            if (!preview && _pageIndex == 0 && page.Pairings.Count > 0 && sheets.Count > 0)
+                LastPrintReport = Report(e, tpl, OverlayLayout.Place(tpl, _t, page.Pairings[0], sheets[0]), hx, hy);
             var bg = tpl.PrintBackground || _preview ? Background(tpl) : null;
 
             for (int i = 0; i < page.Pairings.Count && i < sheets.Count; i++)
@@ -177,6 +185,30 @@ public sealed class SheetPrinter
 
         _pageIndex++;
         e.HasMorePages = _pageIndex < _pages.Count;
+    }
+
+    private string Report(PrintPageEventArgs e, OverlayTemplate tpl, List<PlacedText> placed, float hxPt, float hyPt)
+    {
+        static string Pt(double pt) => (pt / 72.0 * 25.4).ToString("0.0");
+        static string H(double hundredths) => (hundredths * 0.254).ToString("0.0");
+        var ps = e.PageSettings;
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"Zaman: {DateTime.Now:dd.MM.yyyy HH:mm:ss}   Yazıcı: {ps.PrinterSettings.PrinterName}");
+        var (pw, ph) = NotasyonOtomasyonu.Core.PageGeometry.Points(_pageSize);
+        sb.AppendLine($"Programın istediği: {_pageSize} ({Pt(pw)}×{Pt(ph)} mm, dikey), şablon: {tpl.Name}, kağıda {(tpl.PerPage is 2 ? 2 : 1)} notasyon");
+        try { sb.AppendLine($"Sürücünün kağıdı: {ps.PaperSize.PaperName} (tür {ps.PaperSize.Kind}, kod {ps.PaperSize.RawKind}), {H(ps.PaperSize.Width)}×{H(ps.PaperSize.Height)} mm, {(ps.Landscape ? "YATAY" : "dikey")}, tepsi: {ps.PaperSource.SourceName}"); } catch { }
+        sb.AppendLine($"Yazıcının bildirdiği sayfa: {H(e.PageBounds.Width)}×{H(e.PageBounds.Height)} mm {(PaperMismatch ? "⚠ notasyon boyutundan FARKLI" : "✓ notasyon boyutuyla aynı")}");
+        try { sb.AppendLine($"Basılamayan kenar: sol {Pt(hxPt)} mm, üst {Pt(hyPt)} mm (program bunu düzeltir); basılabilir alan {H(ps.PrintableArea.Width)}×{H(ps.PrintableArea.Height)} mm"); } catch { }
+        try { sb.AppendLine($"Çözünürlük: {ps.PrinterResolution.X}×{ps.PrinterResolution.Y} dpi"); } catch { }
+        sb.AppendLine($"Yazıcı kaydırması (Ayarlar): sağa {Pt(_offsetXPt)} mm, aşağı {Pt(_offsetYPt)} mm");
+        sb.AppendLine("İlk kağıttaki yazılar — kağıdın SOL ve ÜST kenarından olması gereken uzaklık (kaydırma dahil):");
+        foreach (var p in placed.Where(p => !string.IsNullOrWhiteSpace(p.Text)).Take(10))
+        {
+            var txt = p.Text.Length > 28 ? p.Text[..28] + "…" : p.Text;
+            sb.AppendLine($"  \"{txt}\": kutu soldan {Pt(p.RectPt.X + _offsetXPt)} mm, üstten {Pt(p.RectPt.Y + _offsetYPt)} mm " +
+                          $"({Pt(p.RectPt.Width)}×{Pt(p.RectPt.Height)} mm, {(p.Align == HAlign.Center ? "ortalı" : p.Align == HAlign.Right ? "sağa dayalı" : "sola dayalı")})");
+        }
+        return sb.ToString().TrimEnd();
     }
 
     private static void DrawBackground(Graphics g, Image bg, RectangleF sheet, bool ghost)
