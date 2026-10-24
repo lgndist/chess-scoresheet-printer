@@ -93,12 +93,12 @@ public sealed class SettingsForm : Form
         y += 32;
         _host.Controls.Add(new Label
         {
-            Text = "Yazılar hazır kağıttaki kutulara göre kayıksa buradan düzeltin; şablonu değiştirmeniz gerekmez. " +
-                   "Önce hizalama testini boş bir hazır kağıda basıp ölçün.",
-            AutoSize = false, Size = new System.Drawing.Size(408, 54), Location = new System.Drawing.Point(16, y),
+            Text = "Yazılar hazır kağıttaki kutulara göre kayıksa buradan düzeltin (±40 mm); şablonu değiştirmeniz gerekmez. " +
+                   "Önce hizalama testini boş bir hazır kağıda basıp ölçün. 25–30 mm'lik kayma çoğunlukla tepsinin A4'te kalmasıdır.",
+            AutoSize = false, Size = new System.Drawing.Size(408, 72), Location = new System.Drawing.Point(16, y),
             ForeColor = System.Drawing.Color.Gray
         });
-        y += 58;
+        y += 76;
         AddRow("Test edilecek şablon:", _testTemplate, ref y);
         y -= 4;
         var btnTest = new Button
@@ -339,7 +339,7 @@ public sealed class SettingsForm : Form
 
     private static NumericUpDown MmBox() => new()
     {
-        Minimum = -15, Maximum = 15, DecimalPlaces = 1, Increment = 0.5m, TextAlign = HorizontalAlignment.Right
+        Minimum = -40, Maximum = 40, DecimalPlaces = 1, Increment = 0.5m, TextAlign = HorizontalAlignment.Right
     };
 
     private void OpenTemplates(object? sender, EventArgs e)

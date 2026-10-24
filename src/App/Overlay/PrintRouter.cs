@@ -77,14 +77,21 @@ public static class PrintRouter
         doc.PrinterSettings.Copies = (short)Math.Clamp(Config.Copies, 1, 99);
     }
 
-    /// <summary>Ayarlı tepsi, seçilen yazıcıda varsa uygulanır.</summary>
+    /// <summary>Ayarlı tepsi, seçilen yazıcıda varsa uygulanır; A5 belgede (notasyon) varsa A5 tepsisi.</summary>
     private static void ApplySource(PrintDocument doc)
     {
-        if (string.IsNullOrWhiteSpace(Config.PaperSource)) return;
+        var source = Config.PaperSource;
+        try
+        {
+            if (doc.DefaultPageSettings.PaperSize.Kind == PaperKind.A5 && !string.IsNullOrWhiteSpace(Config.PaperSourceA5))
+                source = Config.PaperSourceA5;
+        }
+        catch (InvalidPrinterException) { }
+        if (string.IsNullOrWhiteSpace(source)) return;
         try
         {
             foreach (PaperSource s in doc.PrinterSettings.PaperSources)
-                if (string.Equals(s.SourceName, Config.PaperSource, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(s.SourceName, source, StringComparison.OrdinalIgnoreCase))
                 { doc.DefaultPageSettings.PaperSource = s; return; }
         }
         catch (InvalidPrinterException) { }

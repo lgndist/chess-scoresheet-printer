@@ -400,6 +400,12 @@ public sealed class PrintConfig
     /// <summary>Kağıt kaynağı / tepsi adı (boş = yazıcının otomatik seçimi).</summary>
     public string? PaperSource { get; set; }
 
+    /// <summary>
+    /// A5 baskıların (notasyon) kağıt kaynağı; boşsa <see cref="PaperSource"/>. A4 belgeler (hakem
+    /// kağıdı, liste) ile A5 notasyon aynı tepsiden basılınca tepsi A4'e göre kalıp A5 kağıt kayabiliyor.
+    /// </summary>
+    public string? PaperSourceA5 { get; set; }
+
     /// <summary>Her baskı işinin kopya sayısı (notasyon nüshası bundan ayrıdır).</summary>
     public int Copies { get; set; } = 1;
 
