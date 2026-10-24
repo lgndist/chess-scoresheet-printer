@@ -53,9 +53,9 @@ public class PrintReportTests
             Assert.Contains("BEYAZ OYUNCU", report);
             // Yazının başladığı yer: X = 0,2 × kağıt genişliği − 20 mm kaydırma (+ kutu çizgisine yapışmasın diye ~0,7 mm iç boşluk)
             double expect = (size == "A5" ? 148 : 210) * 0.2 - 20;
-            var m = System.Text.RegularExpressions.Regex.Match(report, @"kutu soldan (-?[\d,]+) mm");
+            var m = System.Text.RegularExpressions.Regex.Match(report, @"kutu soldan (-?[\d.,]+) mm");   // Türkçe virgül, İngilizce nokta
             Assert.True(m.Success, report);
-            double got = double.Parse(m.Groups[1].Value, new System.Globalization.CultureInfo("tr-TR"));
+            double got = double.Parse(m.Groups[1].Value.Replace(',', '.'), System.Globalization.CultureInfo.InvariantCulture);
             Assert.InRange(got, expect, expect + 1.0);
         }
         finally { try { File.Delete(file); } catch { } }
