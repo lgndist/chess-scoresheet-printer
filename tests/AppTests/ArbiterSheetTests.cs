@@ -37,7 +37,7 @@ public class ArbiterSheetTests
     public void Groups_StartNewPagePerGroup()
     {
         // 3 kategori bir sayfaya (grup 1), 2'si diğerine (grup 2)
-        var sheets = new[] { Sheet("A", 3, 1), Sheet("B", 3, 1), Sheet("C", 3, 1), Sheet("D", 3, 2), Sheet("E", 3, 2) };
+        var sheets = new[] { Sheet("A", 2, 1), Sheet("B", 2, 1), Sheet("C", 2, 1), Sheet("D", 2, 2), Sheet("E", 2, 2) };
         Assert.Equal(2, new ArbiterSheetPrinter(sheets, "Turnuva", SheetLayout.Groups).PageCount);
         Assert.Equal(1, new ArbiterSheetPrinter(sheets, "Turnuva", SheetLayout.Fit).PageCount);
     }
@@ -75,6 +75,107 @@ public class ArbiterSheetTests
         try
         {
             new ArbiterSheetPrinter(new[] { Sheet("15 Yaş Genel", 8, bye: true), Sheet("13 Yaş Kız", 2) }, "Turnuva", SheetLayout.Fit).SavePdf(path);
+            Assert.Equal("%PDF", System.Text.Encoding.ASCII.GetString(File.ReadAllBytes(path), 0, 4));
+        }
+        finally { File.Delete(path); }
+    }
+
+    private static ArbiterSheet Round(string cat, int round, int boards) => new(cat, round, null, Pairings(boards));
+
+    [Fact]
+    public void Separate_RoundRobinRoundsOfOneCategoryStayTogether()
+    {
+        // Döner turnuvada bütün turlar: aynı kategorinin turları ayrı sayfalara dağılmaz
+        var sheets = Enumerable.Range(1, 3).Select(r => Round("A", r, 3)).Append(Round("B", 1, 3)).ToList();
+        Assert.Equal(2, new ArbiterSheetPrinter(sheets, "Turnuva", SheetLayout.Separate).PageCount);
+    }
+
+    [Fact]
+    public void PenaltyBelow_ReservesRoomAtBottom()
+    {
+        // 22 masa tek sayfaya sığar; altta ceza formu varken sığmaz
+        Assert.Equal(1, new ArbiterSheetPrinter(new[] { Sheet("A", 22) }, "Turnuva", SheetLayout.Fit).PageCount);
+        var p = new ArbiterSheetPrinter(new[] { Sheet("A", 22) }, "Turnuva", SheetLayout.Fit, penalty: PenaltyForm.Below);
+        Assert.Equal(2, p.PageCount);
+        for (int i = 0; i < p.PageCount; i++) using (p.RenderPage(i, 300)) { }
+    }
+
+    [Fact]
+    public void PenaltyBelow_ShortCategory_FormFromMiddle_WithFaintFoldLine()
+    {
+        var p = new ArbiterSheetPrinter(new[] { Sheet("A", 4) }, "Turnuva", SheetLayout.Fit, penalty: PenaltyForm.Below);
+        Assert.Equal(1, p.PageCount);
+        using var bmp = p.RenderPage(0, 1190); // 2 px / pt
+        // Katlama çizgisi sayfanın ortasında: silik gri, siyah değil
+        int mid = bmp.Height / 2;
+        bool faint = false;
+        for (int dy = -2; dy <= 2 && !faint; dy++)
+            for (int x = 5; x < 200 && !faint; x++)
+                if (bmp.GetPixel(x, mid + dy) is var c && c.R < 250 && c.R > 150 && c.R == c.G) faint = true;
+        Assert.True(faint, "orta katlama çizgisi yok");
+    }
+
+    [Fact]
+    public void PenaltyOnly_BlankForm_IsOnePage()
+    {
+        var p = new ArbiterSheetPrinter(Array.Empty<ArbiterSheet>(), "Turnuva", SheetLayout.Fit, penalty: PenaltyForm.BlankPage, penaltyOnly: true);
+        Assert.Equal(1, p.PageCount);
+        using (p.RenderPage(0, 300)) { }
+    }
+
+    [Fact]
+    public void FilledPenalty_TwoRowsPerBoard_SplitAcrossPages()
+    {
+        // 20 masa → 40 sporcu; 1,2 cm satırla sayfaya ~19 satır → 3 sayfa (eşleştirme kağıdı yok)
+        var p = new ArbiterSheetPrinter(new[] { Sheet("A", 20, bye: true) }, "Turnuva", SheetLayout.Fit,
+                                        penalty: PenaltyForm.FilledPage, penaltyOnly: true);
+        Assert.Equal(3, p.PageCount);
+        // Eşleştirme kağıtlarıyla birlikte: önce kağıt, sonra formlar
+        var both = new ArbiterSheetPrinter(new[] { Sheet("A", 20) }, "Turnuva", SheetLayout.Fit, penalty: PenaltyForm.FilledPage);
+        Assert.Equal(1 + 3, both.PageCount);
+        for (int i = 0; i < both.PageCount; i++) using (both.RenderPage(i, 300)) { }
+    }
+
+    [Fact]
+    public void TwoPerPage_BlankForms_OnePageWithTwoCopies()
+    {
+        var p = new ArbiterSheetPrinter(Array.Empty<ArbiterSheet>(), "Turnuva", SheetLayout.Fit,
+                                        penalty: PenaltyForm.BlankPage, penaltyOnly: true, twoPerPage: true);
+        Assert.Equal(1, p.PageCount);
+        using var bmp = p.RenderPage(0, 1190);
+        // İki form: üstte ve altta kalın siyah çerçeve; ortada silik kesme çizgisi
+        int x = 70, blackRuns = 0; bool inBlack = false;
+        for (int y = 0; y < bmp.Height; y++)
+        {
+            bool b = bmp.GetPixel(x, y).R < 60;
+            if (b && !inBlack) blackRuns++;
+            inBlack = b;
+        }
+        Assert.True(blackRuns >= 4, $"iki form çerçevesi bekleniyordu ({blackRuns})");
+    }
+
+    [Fact]
+    public void TwoPerPage_FilledForms_CategoriesShareSheets()
+    {
+        // 3 masa (6 sporcu) yarım sayfaya sığar: iki kategori tek kağıtta
+        var p = new ArbiterSheetPrinter(new[] { Sheet("A", 3), Sheet("B", 3) }, "Turnuva", SheetLayout.Fit,
+                                        penalty: PenaltyForm.FilledPage, penaltyOnly: true, twoPerPage: true);
+        Assert.Equal(1, p.PageCount);
+        // 20 masa (40 sporcu) yarım sayfalara 7'şer → 6 form → 3 sayfa
+        var big = new ArbiterSheetPrinter(new[] { Sheet("A", 20) }, "Turnuva", SheetLayout.Fit,
+                                          penalty: PenaltyForm.FilledPage, penaltyOnly: true, twoPerPage: true);
+        Assert.Equal(3, big.PageCount);
+        for (int i = 0; i < big.PageCount; i++) using (big.RenderPage(i, 300)) { }
+    }
+
+    [Fact]
+    public void Penalty_Pdf_IsWritten()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"csp-ceza-{Guid.NewGuid():N}.pdf");
+        try
+        {
+            new ArbiterSheetPrinter(new[] { Sheet("15 Yaş Genel", 8) }, "Isparta Yıldızlar İl Birinciliği", SheetLayout.Fit,
+                                    penalty: PenaltyForm.Below).SavePdf(path);
             Assert.Equal("%PDF", System.Text.Encoding.ASCII.GetString(File.ReadAllBytes(path), 0, 4));
         }
         finally { File.Delete(path); }

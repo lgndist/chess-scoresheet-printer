@@ -277,7 +277,7 @@ public partial class MainForm
         if (cats is null) return;
         UpdateConfigFromUi();
         var eventName = EventGrouping.BaseName(string.IsNullOrWhiteSpace(_config.Tournament.Name) ? CurrentEventName() : _config.Tournament.Name);
-        var ctx = new ArbiterSheetsContext(eventName, cats.Where(c => c.Tnr > 0).ToList(), LoadArbiterSheetAsync,
+        var ctx = new ArbiterSheetsContext(eventName, cats.Where(c => c.Tnr > 0).ToList(), LoadArbiterSheetAsync, LoadArbiterRoundsAsync,
                                            _config.ArbiterSheets, () => _config.Save(_configPath), _outputDir);
         using var f = new ArbiterSheetsForm(ctx) { Icon = Icon };
         f.ShowDialog(this);
@@ -294,6 +294,23 @@ public partial class MainForm
         try { t = await _online.GetPairingsAsync(cat.Tnr, rd, r.System); }
         catch (InvalidOperationException) { return null; }
         return t.Pairings.Count == 0 ? null : new ArbiterSheet(cat.Name, rd, await RoundWhenAsync(cat.Tnr, rd), t);
+    }
+
+    /// <summary>
+    /// Döner (Berger) kategorinin bütün turları: eşleştirmeler baştan bellidir ve masa numaraları
+    /// turdan tura değişmez, hakem kağıdı bir kerede basılabilir.
+    /// </summary>
+    private async Task<List<ArbiterSheet>> LoadArbiterRoundsAsync(CategoryRef cat)
+    {
+        var r = await RoundsOfAsync(cat.Tnr);
+        var list = new List<ArbiterSheet>();
+        for (int rd = 1; rd <= Math.Min(r.Max, 30); rd++)
+        {
+            var s = await LoadArbiterSheetAsync(cat, rd);
+            if (s is null) break;
+            list.Add(s);
+        }
+        return list;
     }
 
     /// <summary>Turun tarihi ve saati ("11.10.2026 • 10.00"); program yoksa null.</summary>

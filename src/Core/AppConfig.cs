@@ -243,6 +243,18 @@ public sealed class ArbiterSheetConfig
 
     /// <summary>Elle sayfa grupları: kategori adı → sayfa grubu numarası.</summary>
     public Dictionary<string, int> Groups { get; set; } = new();
+
+    /// <summary>Döner (Berger) kategorilerde tek tur yerine bütün turlar (masa numaraları turdan tura değişmez).</summary>
+    public bool AllRounds { get; set; }
+
+    /// <summary>Ceza bildirim formu: "None", "Below" (sayfa altında), "BlankPage" (ayrı boş sayfa), "FilledPage" (sporcularla dolu).</summary>
+    public string Penalty { get; set; } = "None";
+
+    /// <summary>Ayrı sayfa ceza formunda eşleştirme kağıtları basılmasın, yalnız form.</summary>
+    public bool PenaltyOnly { get; set; }
+
+    /// <summary>Ayrı sayfa ceza formunda bir A4'e iki form (ortadan kesilir).</summary>
+    public bool PenaltyTwoPerPage { get; set; }
 }
 
 /// <summary>Güncelleme denetimi ayarları.</summary>

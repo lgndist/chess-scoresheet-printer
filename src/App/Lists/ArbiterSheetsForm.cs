@@ -8,13 +8,16 @@ public sealed record ArbiterSheetsContext(
     string EventName,
     IReadOnlyList<CategoryRef> Categories,
     Func<CategoryRef, int?, Task<ArbiterSheet?>> Load,   // tur null = son eşlenen tur; eşleştirme yoksa null
+    Func<CategoryRef, Task<List<ArbiterSheet>>> LoadAllRounds,   // döner turnuvada bütün turlar
     ArbiterSheetConfig Config,
     Action SaveConfig,
     string OutputDir);
 
 /// <summary>
 /// Hakem eşleştirme kağıtları: hangi kategorilerin basılacağı, tur, sayfa düzeni (her kategori ayrı,
-/// sığdıkça aynı sayfa ya da elle sayfa grupları) ve yazı boyutu seçilir; sağda sayfa sayfa canlı önizleme.
+/// sığdıkça aynı sayfa ya da elle sayfa grupları) ve yazı boyutu seçilir; döner (Berger) kategorilerde
+/// bütün turlar, ceza bildirim formu (sayfa altında ya da ayrı sayfa, boş veya sporcularla dolu).
+/// Sağda sayfa sayfa canlı önizleme.
 /// </summary>
 public sealed class ArbiterSheetsForm : Form
 {
@@ -22,9 +25,21 @@ public sealed class ArbiterSheetsForm : Form
     private static readonly Color GreenDark = Color.FromArgb(95, 122, 70);
     private static readonly Color Border = Color.FromArgb(208, 208, 198);
     private static readonly (string Label, float Pt)[] Sizes = { ("Normal", 11f), ("Büyük (önerilen)", 12.5f), ("Çok büyük", 14f) };
+    private static readonly (string Label, PenaltyForm Kind)[] Penalties =
+    {
+        ("Ekleme", PenaltyForm.None),
+        ("Her sayfanın altında (boş, katlama çizgisiyle)", PenaltyForm.Below),
+        ("Ayrı sayfa — boş form", PenaltyForm.BlankPage),
+        ("Ayrı sayfa — işaretli kategorilerin sporcularıyla (masa, ad, tur)", PenaltyForm.FilledPage)
+    };
 
     private readonly ArbiterSheetsContext _ctx;
     private readonly Dictionary<int, ArbiterSheet?> _sheets = new();   // kategori tnr → yüklenen kağıt
+    private readonly Dictionary<int, List<ArbiterSheet>> _rounds = new();  // döner kategori → bütün turlar
+    private readonly CheckBox _chkAllRounds = new() { Text = "Döner (Berger) kategorilerde bütün turlar (masa numaraları değişmez)", AutoSize = true };
+    private readonly ComboBox _cboPenalty = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 420 };
+    private readonly CheckBox _chkPenaltyOnly = new() { Text = "Yalnız ceza formu (eşleştirme kağıtları olmadan)", AutoSize = true };
+    private readonly CheckBox _chkTwoPerPage = new() { Text = "Bir sayfaya 2 form (ortadan kesilir)", AutoSize = true };
     private readonly DataGridView _grid = new();
     private readonly RadioButton _rbSeparate = new() { Text = "Her kategori ayrı sayfada", AutoSize = true };
     private readonly RadioButton _rbFit = new() { Text = "Sığdıkça aynı sayfaya (kağıt tasarrufu)", AutoSize = true };
@@ -48,8 +63,8 @@ public sealed class ArbiterSheetsForm : Form
         Text = "Hakem Eşleştirme Kağıtları — " + ctx.EventName;
         Font = new Font("Segoe UI", 9.75f);
         StartPosition = FormStartPosition.CenterParent;
-        Size = new Size(1180, 760);
-        MinimumSize = new Size(900, 600);
+        Size = new Size(1180, 860);
+        MinimumSize = new Size(900, 700);
         BackColor = Color.FromArgb(250, 250, 247);
         BuildLayout();
 
@@ -57,12 +72,23 @@ public sealed class ArbiterSheetsForm : Form
         int si = Array.FindIndex(Sizes, s => Math.Abs(s.Pt - ctx.Config.FontPt) < 0.3);
         _cboSize.SelectedIndex = si >= 0 ? si : 1;
         (ctx.Config.Layout switch { "Separate" => _rbSeparate, "Groups" => _rbGroups, _ => _rbFit }).Checked = true;
+        foreach (var (label, _) in Penalties) _cboPenalty.Items.Add(label);
+        int pi = Array.FindIndex(Penalties, p => p.Kind.ToString() == ctx.Config.Penalty);
+        _cboPenalty.SelectedIndex = pi >= 0 ? pi : 0;
+        _chkPenaltyOnly.Checked = ctx.Config.PenaltyOnly;
+        _chkTwoPerPage.Checked = ctx.Config.PenaltyTwoPerPage;
+        _chkAllRounds.Checked = ctx.Config.AllRounds;
+        UpdatePenaltyOnly();
         FillGrid();
         _init = false;
 
         foreach (var rb in new[] { _rbSeparate, _rbFit, _rbGroups })
             rb.CheckedChanged += (_, _) => { if (rb.Checked) { SaveOptions(); Rebuild(); } };
         _cboSize.SelectedIndexChanged += (_, _) => { SaveOptions(); Rebuild(); };
+        _cboPenalty.SelectedIndexChanged += (_, _) => { UpdatePenaltyOnly(); SaveOptions(); Rebuild(); };
+        _chkPenaltyOnly.CheckedChanged += (_, _) => { SaveOptions(); Rebuild(); };
+        _chkTwoPerPage.CheckedChanged += (_, _) => { SaveOptions(); Rebuild(); };
+        _chkAllRounds.CheckedChanged += async (_, _) => { SaveOptions(); await LoadRoundsAsync(); };
         _btnPrev.Click += (_, _) => ShowPage(_page - 1);
         _btnNext.Click += (_, _) => ShowPage(_page + 1);
         _btnPrint.Click += (_, _) => Print();
@@ -74,7 +100,7 @@ public sealed class ArbiterSheetsForm : Form
     private void BuildLayout()
     {
         var left = new Panel { Dock = DockStyle.Left, Width = 560, Padding = new Padding(14, 12, 8, 8) };
-        var options = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 170, FlowDirection = FlowDirection.TopDown, WrapContents = false };
+        var options = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 300, FlowDirection = FlowDirection.TopDown, WrapContents = false };
         options.Controls.Add(Header("Sayfa düzeni"));
         // Düzen seçenekleri kendi kabında (yazı boyutu kutusuyla aynı grupta olmasınlar)
         var layoutBox = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(0) };
@@ -84,6 +110,16 @@ public sealed class ArbiterSheetsForm : Form
         sizeRow.Controls.Add(new Label { Text = "Yazı boyutu:", AutoSize = true, Margin = new Padding(0, 7, 6, 0), Font = new Font(Font, FontStyle.Bold), ForeColor = GreenDark });
         sizeRow.Controls.Add(_cboSize);
         options.Controls.Add(sizeRow);
+        _chkAllRounds.Margin = new Padding(0, 8, 0, 0);
+        options.Controls.Add(_chkAllRounds);
+        options.Controls.Add(Header("Ceza bildirim formu"));
+        options.Controls.Add(_cboPenalty);
+        _chkPenaltyOnly.Margin = new Padding(0, 4, 0, 0);
+        var penaltyRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 4, 0, 0) };
+        _chkPenaltyOnly.Margin = new Padding(0, 0, 14, 0);
+        _chkTwoPerPage.Margin = new Padding(0);
+        penaltyRow.Controls.AddRange(new Control[] { _chkPenaltyOnly, _chkTwoPerPage });
+        options.Controls.Add(penaltyRow);
 
         _grid.Dock = DockStyle.Fill;
         _grid.AllowUserToAddRows = _grid.AllowUserToDeleteRows = _grid.AllowUserToResizeRows = false;
@@ -203,8 +239,42 @@ public sealed class ArbiterSheetsForm : Form
         row.Cells["Masa"].Value = sheet is null ? "yok" : sheet.Pairings.Pairings.Count(p => !p.IsBye).ToString();
         if (sheet is null) { row.Cells["Bas"].Value = false; row.DefaultCellStyle.ForeColor = Color.Gray; }
         _init = was;
+        if (_chkAllRounds.Checked && IsRoundRobin(sheet)) await LoadRoundsAsync(row);
+        else Rebuild();
+    }
+
+    private static bool IsRoundRobin(ArbiterSheet? s) => s?.Pairings.System.IsRoundRobin() == true;
+
+    /// <summary>Döner kategorilerin bütün turları (bir kez alınır); Tur hücresi "1–7" olur.</summary>
+    private async Task LoadRoundsAsync(DataGridViewRow? only = null)
+    {
+        foreach (DataGridViewRow row in _grid.Rows)
+        {
+            if (only is not null && row != only) continue;
+            if (row.Tag is not CategoryRef c || !IsRoundRobin(_sheets.GetValueOrDefault(c.Tnr))) continue;
+            if (_chkAllRounds.Checked && !_rounds.ContainsKey(c.Tnr))
+            {
+                _lblStatus.Text = $"{row.Cells["Kategori"].Value}: bütün turlar alınıyor…";
+                List<ArbiterSheet> list;
+                try { list = await _ctx.LoadAllRounds(c); }
+                catch { list = new(); }
+                if (IsDisposed) return;
+                if (list.Count > 0) _rounds[c.Tnr] = list;
+            }
+            bool was = _init;
+            _init = true;
+            row.Cells["Tur"].Value = _chkAllRounds.Checked && _rounds.TryGetValue(c.Tnr, out var all)
+                ? $"{all.Min(s => s.Round)}–{all.Max(s => s.Round)}" : _sheets[c.Tnr]!.Round.ToString();
+            row.Cells["Tur"].ReadOnly = _chkAllRounds.Checked && _rounds.ContainsKey(c.Tnr);
+            _init = was;
+        }
         Rebuild();
     }
+
+    private PenaltyForm PenaltyChoice => Penalties[Math.Max(0, _cboPenalty.SelectedIndex)].Kind;
+
+    private void UpdatePenaltyOnly()
+        => _chkPenaltyOnly.Enabled = _chkTwoPerPage.Enabled = PenaltyChoice is PenaltyForm.BlankPage or PenaltyForm.FilledPage;
 
     private List<ArbiterSheet> Selected()
     {
@@ -213,7 +283,11 @@ public sealed class ArbiterSheetsForm : Form
         {
             if (row.Cells["Bas"].Value is not true || row.Tag is not CategoryRef c || _sheets.GetValueOrDefault(c.Tnr) is not { } s) continue;
             int grp = int.TryParse(row.Cells["Sayfa"].Value?.ToString(), out var g) && g > 0 ? g : 1;
-            list.Add(s with { Category = row.Cells["Kategori"].Value?.ToString() ?? s.Category, Group = grp });
+            var name = row.Cells["Kategori"].Value?.ToString() ?? s.Category;
+            if (_chkAllRounds.Checked && _rounds.TryGetValue(c.Tnr, out var all))
+                list.AddRange(all.Select(r => r with { Category = name, Group = grp }));
+            else
+                list.Add(s with { Category = name, Group = grp });
         }
         // Gruplarda: grup numarasına göre (aynı grup içinde tablo sırası korunur)
         return _rbGroups.Checked ? list.Select((s, i) => (s, i)).OrderBy(x => x.s.Group).ThenBy(x => x.i).Select(x => x.s).ToList() : list;
@@ -227,6 +301,10 @@ public sealed class ArbiterSheetsForm : Form
         if (_init) return;
         _ctx.Config.Layout = LayoutChoice.ToString();
         _ctx.Config.FontPt = FontPt;
+        _ctx.Config.Penalty = PenaltyChoice.ToString();
+        _ctx.Config.PenaltyOnly = _chkPenaltyOnly.Checked;
+        _ctx.Config.PenaltyTwoPerPage = _chkTwoPerPage.Checked;
+        _ctx.Config.AllRounds = _chkAllRounds.Checked;
         _ctx.SaveConfig();
     }
 
@@ -237,7 +315,11 @@ public sealed class ArbiterSheetsForm : Form
         _grid.EndEdit();
         _grid.Columns["Sayfa"]!.Visible = _rbGroups.Checked;
         var sheets = Selected();
-        _printer = sheets.Count == 0 ? null : new ArbiterSheetPrinter(sheets, _ctx.EventName, LayoutChoice, FontPt);
+        // Boş ceza formu kategori seçilmeden de basılabilir.
+        bool blankOnly = PenaltyChoice == PenaltyForm.BlankPage && (_chkPenaltyOnly.Checked || sheets.Count == 0);
+        _printer = sheets.Count == 0 && !blankOnly ? null
+            : new ArbiterSheetPrinter(sheets, _ctx.EventName, LayoutChoice, FontPt, PenaltyChoice, _chkPenaltyOnly.Checked || sheets.Count == 0,
+                                      _chkTwoPerPage.Checked);
         ShowPage(_page);
         UpdateStatus();
     }
@@ -264,9 +346,11 @@ public sealed class ArbiterSheetsForm : Form
     private void UpdateStatus()
     {
         var sel = Selected();
+        int cats = sel.Select(s => s.Category).Distinct().Count();
         _lblStatus.Text = _pending > 0 ? $"Eşleştirmeler alınıyor… ({_grid.Rows.Count - _pending}/{_grid.Rows.Count})"
+            : sel.Count == 0 && _printer is not null ? $"Boş ceza bildirim formu • {_printer.PageCount} sayfa A4"
             : sel.Count == 0 ? "Basılacak kategori yok (eşleştirmesi yayımlanmış kategori seçin)."
-            : $"{sel.Count} kategori • {sel.Sum(s => s.Pairings.Pairings.Count(p => !p.IsBye))} masa • {_printer?.PageCount ?? 0} sayfa A4";
+            : $"{cats} kategori{(sel.Count > cats ? $" • {sel.Count} tur" : "")} • {sel.Sum(s => s.Pairings.Pairings.Count(p => !p.IsBye))} masa • {_printer?.PageCount ?? 0} sayfa A4";
         _btnPrint.Enabled = _btnPdf.Enabled = _printer is not null && _pending == 0;
     }
 
