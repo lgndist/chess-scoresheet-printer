@@ -39,6 +39,15 @@ public sealed class SheetPrinter
     /// <summary>Basılacak sayfa (yaprak) sayısı.</summary>
     public int PageCount => _pages.Count;
 
+    /// <summary>
+    /// Yazıcının gerçek baskıda bildirdiği kağıt: ad, boyut ve basılamayan kenar ("A5, 148×210 mm, kenar 4,2/4,2 mm").
+    /// Yazılar kayarsa nedeni görülsün (ör. yazıcı A4 basıyorsa).
+    /// </summary>
+    public string? PrintedPaper { get; private set; }
+
+    /// <summary>Yazıcının bildirdiği kağıt, notasyon boyutundan (A5/A4) 5 mm'den fazla farklı mı.</summary>
+    public bool PaperMismatch { get; private set; }
+
     /// <summary>Bu baskıda kullanılan şablonların adları (önizleme başlığı ve işlem kaydı için).</summary>
     public string TemplateNames => string.Join(", ", _pages.Select(p => p.Template.Name).Where(n => !string.IsNullOrWhiteSpace(n)).Distinct());
 
@@ -135,6 +144,15 @@ public sealed class SheetPrinter
         float hx = preview ? 0 : e.PageSettings.HardMarginX / 100f * 72f;
         float hy = preview ? 0 : e.PageSettings.HardMarginY / 100f * 72f;
         g.TranslateTransform(-hx, -hy);
+        if (!preview && _pageIndex == 0)
+        {
+            // Sayfa ölçüsü yüzde bir inç → mm
+            double wmm = e.PageBounds.Width * 0.254, hmm = e.PageBounds.Height * 0.254;
+            var (pw, ph) = NotasyonOtomasyonu.Core.PageGeometry.Points(_pageSize);
+            double ew = pw / 72.0 * 25.4, eh = ph / 72.0 * 25.4;
+            PaperMismatch = Math.Abs(wmm - ew) > 5 || Math.Abs(hmm - eh) > 5;
+            PrintedPaper = $"{e.PageSettings.PaperSize.PaperName}, {wmm:0}×{hmm:0} mm, kenar {hx / 72 * 25.4:0.0}/{hy / 72 * 25.4:0.0} mm";
+        }
 
         if (_pageIndex < _pages.Count)
         {

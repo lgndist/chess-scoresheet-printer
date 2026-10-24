@@ -1257,6 +1257,7 @@ public partial class MainForm : Form
     private void MainForm_KeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Control && e.KeyCode == Keys.P && btnPrint.Enabled) { e.SuppressKeyPress = true; btnPrint.PerformClick(); }
+        else if (e.Control && e.KeyCode == Keys.Q) { e.SuppressKeyPress = true; OpenPrintQueue(); } // yazdırma sırası
         else if (e.KeyCode == Keys.F5 && rbOnline.Checked && btnSync.Enabled) { e.SuppressKeyPress = true; btnSync.PerformClick(); }
         else if (e.Control && e.KeyCode is Keys.E or Keys.R && !_busy && _gridTournament is not null)
         {
@@ -1284,7 +1285,14 @@ public partial class MainForm : Form
         {
             SetStatus($"✓ {t.Pairings.Count} kağıt yazıcıya gönderildi.", ok: true);
             Log($"🖨 Basıldı: {baseT.Name} — {DescribeRounds(baseT)}, {baseT.Pairings.Count} masa × {copies} = {t.Pairings.Count} kağıt " +
-                $"(şablon: {printer.TemplateNames}; {_config.Layout.PageSize}; kaydırma {_config.Layout.PrintOffsetXmm:0.0}/{_config.Layout.PrintOffsetYmm:0.0} mm).");
+                $"(şablon: {printer.TemplateNames}; {_config.Layout.PageSize}; kaydırma {_config.Layout.PrintOffsetXmm:0.0}/{_config.Layout.PrintOffsetYmm:0.0} mm" +
+                (printer.PrintedPaper is { } paper ? $"; yazıcının kağıdı: {paper}" : "") + ").");
+            if (printer.PaperMismatch)
+            {
+                Log($"⚠ Yazıcı notasyonu {_config.Layout.PageSize} değil {printer.PrintedPaper} olarak bastı: yazılar kağıtta kayar. " +
+                    "Yazıcının tercihlerinde (ve tepsisinde) kağıt boyutunu " + _config.Layout.PageSize + " yapın.");
+                SetStatus($"⚠ Yazıcı kağıdı {_config.Layout.PageSize} değil ({printer.PrintedPaper}) — işlem kaydına bakın.", ok: false);
+            }
         }
         else SetStatus("Önizleme kapatıldı; baskı yapılmadı.", ok: true);
         return printed;

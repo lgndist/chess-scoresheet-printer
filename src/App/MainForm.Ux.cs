@@ -41,10 +41,11 @@ public partial class MainForm
 
         // Yazdır düğmesinin altında ince yazıcı satırı: hangi yazıcıya basılacağı her an görünür, tıklayınca ayarlar.
         btnPrint.Height -= 28;
+        const int queueW = 128;
         _btnPrinter = new Button
         {
             Location = new Point(btnPrint.Left, btnPrint.Bottom + 4),
-            Size = new Size(btnPrint.Width, 24),
+            Size = new Size(btnPrint.Width - queueW - 4, 24),
             Anchor = btnPrint.Anchor,
             BackColor = Color.White,
             ForeColor = Color.FromArgb(60, 60, 60),
@@ -57,12 +58,41 @@ public partial class MainForm
         grpPairings.Controls.Add(_btnPrinter);
         new ToolTip().SetToolTip(_btnPrinter, "Yazıcı ayarları: hedef yazıcı, kağıt kaynağı, kopya, yazıcı tercihleri (sessiz mod), doğrudan yazdır.");
 
+        // Yanında yazdırma sırası: bekleyen/takılan işler tek tıkla görülsün (Ctrl+Q).
+        _btnQueue = new Button
+        {
+            Text = "📋 Yazdırma sırası",
+            Location = new Point(_btnPrinter.Right + 4, _btnPrinter.Top),
+            Size = new Size(queueW, 24),
+            Anchor = btnPrint.Anchor & ~AnchorStyles.Left | AnchorStyles.Right,
+            BackColor = Color.White,
+            ForeColor = Color.FromArgb(60, 60, 60),
+            Font = new Font("Segoe UI", 8.75f)
+        };
+        StyleButton(_btnQueue);
+        _btnQueue.Click += (_, _) => OpenPrintQueue();
+        grpPairings.Controls.Add(_btnQueue);
+        new ToolTip().SetToolTip(_btnQueue, "Hedef yazıcının yazdırma sırasını açar: bekleyen, takılan ya da hatalı işleri görün, iptal edin (Ctrl+Q).");
+
         foreach (var item in _gridListMenu.Items.OfType<ToolStripMenuItem>())
             item.ShortcutKeyDisplayString = item.Text!.Contains("Hakem") ? "Ctrl+H" : item.Text.Contains("eşleştirme") ? "Ctrl+E" : "Ctrl+R";
         _listTip.SetToolTip(_btnGridList!, "Listede görünen kategori ve turun eşleştirme (Ctrl+E) ya da sonuç (Ctrl+R) listesini A4 bas.");
     }
 
-    private Button? _btnPrinter;
+    private Button? _btnPrinter, _btnQueue;
+
+    /// <summary>Hedef yazıcının Windows yazdırma sırası penceresi (bekleyen işler).</summary>
+    private void OpenPrintQueue()
+    {
+        var printer = Overlay.PrintRouter.TargetName;
+        if (string.IsNullOrWhiteSpace(printer)) { SetStatus("Yazıcı bulunamadı: Windows'ta varsayılan yazıcı yok.", ok: false); return; }
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("rundll32.exe", $"printui.dll,PrintUIEntry /o /n \"{printer}\"") { UseShellExecute = false });
+            SetStatus($"Yazdırma sırası açıldı: {printer}", ok: true);
+        }
+        catch (Exception ex) { SetStatus("Yazdırma sırası açılamadı: " + ex.Message, ok: false); }
+    }
 
     private void OpenPrinterSettings()
     {
